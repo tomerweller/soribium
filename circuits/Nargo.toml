@@ -1,2 +1,2 @@
 [workspace]
-members = ["lib", "trivial"]
+members = ["lib", "trivial", "batch_n4"]

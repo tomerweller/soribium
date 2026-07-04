@@ -8,6 +8,8 @@ fn main() {
         "vectors" => vectors(),
         // Schnorr vectors pinned in circuits/lib tests (M3 checkpoint).
         "sig-vectors" => sig_vectors(),
+        // Deterministic demo batch -> Prover.toml -> bb -> fixtures/batch_n4.
+        "demo-batch" => demo_batch(),
         _ => {
             eprintln!("usage: harness vectors");
             std::process::exit(2);
@@ -68,4 +70,71 @@ fn sig_vectors() {
     println!("r_y     = {}", to_hex(&sig.r_y));
     println!("s_lo    = {}", to_hex(&s_lo));
     println!("s_hi    = {}", to_hex(&s_hi));
+}
+
+/// The deterministic scenario replayed by the contract's custody-loop test
+/// (contracts/rollup/tests/custody_loop.rs). Every constant here is part of
+/// the fixture contract between harness and test: alice sk=101 deposits 1000,
+/// bob sk=202 deposits 500, alice pays bob 200, bob withdraws 100 to WD_ADDR.
+const WD_ADDR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+
+fn demo_batch() {
+    use harness::batch::{build_batch, DepositRequest, TxRequest};
+    use harness::l1::address_to_field;
+    use harness::prover;
+    use harness::tree::Tree;
+    use rand::SeedableRng;
+
+    let hasher = Hasher::new();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+
+    let alice = harness::keys::Keypair::from_sk(ark_grumpkin::Fr::from(101u64));
+    let bob = harness::keys::Keypair::from_sk(ark_grumpkin::Fr::from(202u64));
+    let wd_field = address_to_field(&hasher, WD_ADDR);
+
+    let mut tree = Tree::new();
+    let witness = build_batch(
+        &hasher,
+        &mut tree,
+        2,
+        4,
+        &[
+            DepositRequest { pk_x: alice.pk_x(), amount: 1000 },
+            DepositRequest { pk_x: bob.pk_x(), amount: 500 },
+        ],
+        &[
+            TxRequest { from: &alice, to_field: bob.pk_x(), amount: 200, is_withdraw: false },
+            TxRequest { from: &bob, to_field: wd_field, amount: 100, is_withdraw: true },
+        ],
+        &mut rng,
+    );
+
+    println!("old_root      = {}", to_hex(&witness.old_root));
+    println!("new_root      = {}", to_hex(&witness.new_root));
+    println!("deposit_hash  = {}", to_hex(&witness.deposit_hash));
+    println!("withdraw_hash = {}", to_hex(&witness.withdraw_hash));
+
+    // Metadata for the contract test to replay the same scenario.
+    let meta = serde_json::json!({
+        "old_root": to_hex(&witness.old_root),
+        "new_root": to_hex(&witness.new_root),
+        "deposit_hash": to_hex(&witness.deposit_hash),
+        "withdraw_hash": to_hex(&witness.withdraw_hash),
+        "deposits": [
+            { "pk_x": to_hex(&alice.pk_x()), "amount": 1000 },
+            { "pk_x": to_hex(&bob.pk_x()), "amount": 500 },
+        ],
+        "withdrawals": [ { "dest": WD_ADDR, "amount": 100 } ],
+    });
+    let root = prover::repo_root();
+    let fixture_dir = root.join("fixtures/batch_n4");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    std::fs::write(
+        fixture_dir.join("meta.json"),
+        serde_json::to_string_pretty(&meta).unwrap(),
+    )
+    .unwrap();
+
+    let toml = prover::to_prover_toml(&witness);
+    prover::prove("batch_n4", &toml).expect("prove pipeline failed");
 }

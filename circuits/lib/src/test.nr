@@ -46,42 +46,32 @@ fn empty_account_is_zero_leaf() {
     assert(leaf_value(Account { pk_x: 0, balance: 0, nonce: 0 }) == 0);
 }
 
-#[test]
-fn single_leaf_root_matches_harness() {
-    // Insert leaf(1234, 100, 0) at index 5 of the empty depth-8 tree:
-    // path bits of 5 LSB-first = [1,0,1,0,0,0,0,0]; siblings are the zero
-    // ladder of an otherwise-empty tree.
+fn zero_siblings() -> [Field; DEPTH] {
     let z = zeros();
     let mut siblings = [0; DEPTH];
     for i in 0..DEPTH {
         siblings[i] = z[i];
     }
-    let bits = [1, 0, 1, 0, 0, 0, 0, 0];
+    siblings
+}
+
+#[test]
+fn single_leaf_root_matches_harness() {
+    // Insert leaf(1234, 100, 0) at index 5 of the empty depth-8 tree;
+    // siblings are the zero ladder of an otherwise-empty tree.
     let leaf = leaf_value(Account { pk_x: 1234, balance: 100, nonce: 0 });
-    assert(compute_root(leaf, siblings, bits) == ROOT_LEAF_AT_5);
+    assert(compute_root(leaf, 5, zero_siblings()) == ROOT_LEAF_AT_5);
 }
 
 #[test]
 fn update_root_roundtrip() {
-    let z = zeros();
-    let mut siblings = [0; DEPTH];
-    for i in 0..DEPTH {
-        siblings[i] = z[i];
-    }
-    let bits = [1, 0, 1, 0, 0, 0, 0, 0];
     let leaf = leaf_value(Account { pk_x: 1234, balance: 100, nonce: 0 });
     // empty -> leaf at index 5 must land on the harness root.
-    let new_root = update_root(0, leaf, siblings, bits, EMPTY_ROOT_D8);
+    let new_root = update_root(0, leaf, 5, zero_siblings(), EMPTY_ROOT_D8);
     assert(new_root == ROOT_LEAF_AT_5);
 }
 
 #[test(should_fail)]
 fn update_root_rejects_wrong_old_root() {
-    let z = zeros();
-    let mut siblings = [0; DEPTH];
-    for i in 0..DEPTH {
-        siblings[i] = z[i];
-    }
-    let bits = [1, 0, 1, 0, 0, 0, 0, 0];
-    let _ = update_root(0, 1, siblings, bits, ROOT_LEAF_AT_5);
+    let _ = update_root(0, 1, 5, zero_siblings(), ROOT_LEAF_AT_5);
 }

@@ -92,6 +92,14 @@ pub fn sign_with_nonce(hasher: &Hasher, keypair: &Keypair, msg: Fr, k: Scalar) -
     }
 }
 
+/// The fixed padding signature baked into circuits/lib/src/tx.nr (PAD_*
+/// globals): sk=7, k=13, msg=42. Public by design; padded batch entries
+/// re-verify it instead of predicating the MSM.
+pub fn pad_signature(hasher: &Hasher) -> Signature {
+    let keypair = Keypair::from_sk(Scalar::from(7u64));
+    sign_with_nonce(hasher, &keypair, fr_from_u64(42), Scalar::from(13u64))
+}
+
 /// Off-chain sanity check with the same equation the circuit enforces.
 pub fn verify(hasher: &Hasher, pk: &Affine, msg: Fr, sig: &Signature) -> bool {
     let pk_x = coord_to_fr(&pk.x);
