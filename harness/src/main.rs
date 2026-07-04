@@ -10,8 +10,9 @@ fn main() {
         "sig-vectors" => sig_vectors(),
         // Deterministic demo batch -> Prover.toml -> bb -> fixtures/batch_n4.
         "demo-batch" => demo_batch(),
-        // Larger batch for cost-scaling measurements -> fixtures/batch_n16.
-        "demo-batch-n16" => demo_batch_n16(),
+        // Larger batches for cost-scaling measurements -> fixtures/batch_nN.
+        "demo-batch-n16" => demo_batch_sized(4, 16, "batch_n16"),
+        "demo-batch-n64" => demo_batch_sized(8, 64, "batch_n64"),
         _ => {
             eprintln!("usage: harness vectors");
             std::process::exit(2);
@@ -164,9 +165,9 @@ fn demo_batch() {
     println!("wrote fixtures/batch_n4/{{meta.json, envelope.json}}");
 }
 
-/// 4 deposits + 16 txs (14 transfers, 2 withdrawals) purely for cost-scaling
+/// D deposits + N txs (N-2 transfers, 2 withdrawals) purely for cost-scaling
 /// measurements; no meta/envelope needed (measured via the verify entrypoint).
-fn demo_batch_n16() {
+fn demo_batch_sized(d: usize, n: usize, pkg: &str) {
     use harness::batch::{build_batch, DepositRequest, TxRequest};
     use harness::l1::address_to_field;
     use harness::prover;
@@ -176,29 +177,29 @@ fn demo_batch_n16() {
     let hasher = Hasher::new();
     let mut rng = rand::rngs::StdRng::seed_from_u64(2);
 
-    let users: Vec<harness::keys::Keypair> = (0..4)
-        .map(|i| harness::keys::Keypair::from_sk(ark_grumpkin::Fr::from(301u64 + i)))
+    let users: Vec<harness::keys::Keypair> = (0..d)
+        .map(|i| harness::keys::Keypair::from_sk(ark_grumpkin::Fr::from(301u64 + i as u64)))
         .collect();
     let wd_field = address_to_field(&hasher, &wd_addr());
 
     let mut tree = Tree::new();
     let deposits: Vec<DepositRequest> = users
         .iter()
-        .map(|u| DepositRequest { pk_x: u.pk_x(), amount: 10_000 })
+        .map(|u| DepositRequest { pk_x: u.pk_x(), amount: 1_000_000 })
         .collect();
 
     let mut txs = Vec::new();
-    for i in 0..14usize {
-        let from = &users[i % 4];
-        let to = &users[(i + 1) % 4];
+    for i in 0..n - 2 {
+        let from = &users[i % d];
+        let to = &users[(i + 1) % d];
         txs.push(TxRequest { from, to_field: to.pk_x(), amount: 50 + i as u64, is_withdraw: false });
     }
     txs.push(TxRequest { from: &users[0], to_field: wd_field, amount: 77, is_withdraw: true });
     txs.push(TxRequest { from: &users[1], to_field: wd_field, amount: 88, is_withdraw: true });
 
-    let witness = build_batch(&hasher, &mut tree, 4, 16, &deposits, &txs, &mut rng);
+    let witness = build_batch(&hasher, &mut tree, d, n, &deposits, &txs, &mut rng);
     println!("new_root = {}", to_hex(&witness.new_root));
 
     let toml = prover::to_prover_toml(&witness);
-    prover::prove("batch_n16", &toml).expect("prove pipeline failed");
+    prover::prove(pkg, &toml).expect("prove pipeline failed");
 }

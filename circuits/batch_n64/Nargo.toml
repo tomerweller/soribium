@@ -1,0 +1,8 @@
+[package]
+name = "batch_n64"
+type = "bin"
+authors = [""]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+rollup_lib = { path = "../lib" }
