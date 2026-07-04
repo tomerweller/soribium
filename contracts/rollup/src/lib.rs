@@ -9,7 +9,7 @@ pub mod storage;
 use soroban_sdk::{
     contract, contracterror, contractimpl, contracttype, token, Address, Bytes, BytesN, Env, Vec,
 };
-use storage::PendingDeposit;
+pub use storage::PendingDeposit;
 use ultrahonk_soroban_verifier::{UltraHonkVerifier, PROOF_BYTES};
 
 /// Inline withdrawal execution cap per batch (write-entry/CPU headroom).
@@ -37,9 +37,11 @@ pub struct BatchEnvelope {
     /// How many entries of the FIFO deposit queue this batch consumes.
     pub deposit_count: u32,
     pub withdrawals: Vec<Withdrawal>,
-    /// Raw L2 transaction blob, carried for data availability. NOT
-    /// cryptographically bound in the spike (DESIGN.md caveats).
-    pub txs_blob: Bytes,
+    /// Poseidon2 fold over the batch's tx messages (DOMAIN_DA), proven
+    /// in-circuit as the 5th public input. Validium: the blob itself lives
+    /// off-chain (sequencer DA endpoint); verifiers re-fold it against this
+    /// commitment.
+    pub da_commitment: BytesN<32>,
     pub proof: Bytes,
 }
 
@@ -61,8 +63,8 @@ impl RollupContract {
         vk: Bytes,
         genesis_root: BytesN<32>,
     ) -> Result<(), RollupError> {
-        // Parse-validate the VK and pin the public-input count: 4 user PIs
-        // (old_root, new_root, deposit_hash, withdraw_hash) + 16 pairing.
+        // Parse-validate the VK. 5 user PIs (old_root, new_root,
+        // deposit_hash, withdraw_hash, da_commitment) + 16 pairing.
         UltraHonkVerifier::new(&env, &vk).map_err(|_| RollupError::InvalidVerificationKey)?;
         storage::set_vk(&env, &vk);
         storage::set_token(&env, &token);
@@ -142,6 +144,7 @@ impl RollupContract {
         publics::append_field(&env, &mut pis, &envelope.new_root);
         publics::append_field(&env, &mut pis, &deposit_hash);
         publics::append_field(&env, &mut pis, &withdraw_hash);
+        publics::append_field(&env, &mut pis, &envelope.da_commitment);
 
         // --- verify ---
         let vk = storage::get_vk(&env);
@@ -162,7 +165,12 @@ impl RollupContract {
             token_client.transfer(&env.current_contract_address(), &wd.dest, &wd.amount);
         }
 
-        events::Batch { batch_num: &batch_num, new_root: &envelope.new_root }.publish(&env);
+        events::Batch {
+            batch_num: &batch_num,
+            new_root: &envelope.new_root,
+            da_commitment: &envelope.da_commitment,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -189,6 +197,23 @@ impl RollupContract {
 
     pub fn pending_deposit_count(env: Env) -> u64 {
         storage::dep_tail(&env) - storage::dep_head(&env)
+    }
+
+    /// Next unassigned deposit-queue sequence number (exclusive end).
+    pub fn dep_tail(env: Env) -> u64 {
+        storage::dep_tail(&env)
+    }
+
+    /// First unconsumed deposit-queue sequence number.
+    pub fn dep_head(env: Env) -> u64 {
+        storage::dep_head(&env)
+    }
+
+    /// Read one pending queue entry (traps if consumed/nonexistent). The
+    /// sequencer's deposit watcher polls dep_tail + this instead of events:
+    /// contract storage has no retention window.
+    pub fn get_pending_deposit(env: Env, seq: u64) -> PendingDeposit {
+        storage::get_deposit(&env, seq)
     }
 
     pub fn token(env: Env) -> Address {

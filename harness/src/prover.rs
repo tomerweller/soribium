@@ -29,6 +29,7 @@ pub fn to_prover_toml(w: &BatchWitness) -> String {
     let _ = writeln!(out, "new_root = {}", fr_lit(&w.new_root));
     let _ = writeln!(out, "deposit_hash = {}", fr_lit(&w.deposit_hash));
     let _ = writeln!(out, "withdraw_hash = {}", fr_lit(&w.withdraw_hash));
+    let _ = writeln!(out, "da_commitment = {}", fr_lit(&w.da_commitment));
     for d in &w.deposits {
         let _ = writeln!(out, "\n[[deposits]]");
         let _ = writeln!(out, "pk_x = {}", fr_lit(&d.pk_x));
@@ -71,14 +72,27 @@ pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
 }
 
-/// Write Prover.toml for `pkg` and run the full prove pipeline (nargo + bb +
-/// fixture staging). Requires nargo/bb on PATH or at ~/.nargo/bin, ~/.bb.
-pub fn prove(pkg: &str, prover_toml: &str) -> std::io::Result<()> {
-    let root = repo_root();
-    let toml_path = root.join("circuits").join(pkg).join("Prover.toml");
+/// The Noir workspace directory. `CIRCUITS_DIR` overrides the compile-time
+/// repo path — required inside Docker, where the build machine's absolute
+/// paths don't exist.
+pub fn circuits_dir() -> PathBuf {
+    match std::env::var_os("CIRCUITS_DIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => repo_root().join("circuits"),
+    }
+}
+
+/// Write Prover.toml for `pkg` and run the full prove pipeline (nargo + bb).
+/// Returns the bb output directory containing `proof`, `public_inputs`, and
+/// `vk.bin`. Fixture staging only happens when running from the repo
+/// (`STAGE_FIXTURES=0` or a missing fixtures dir skips it — the sequencer
+/// reads the output dir directly).
+pub fn prove(pkg: &str, prover_toml: &str) -> std::io::Result<PathBuf> {
+    let circuits = circuits_dir();
+    let toml_path = circuits.join(pkg).join("Prover.toml");
     std::fs::write(&toml_path, prover_toml)?;
 
-    let script = root.join("circuits/scripts/prove.sh");
+    let script = circuits.join("scripts/prove.sh");
     let home = std::env::var("HOME").unwrap_or_default();
     let path = format!(
         "{home}/.nargo/bin:{home}/.bb:{}",
@@ -91,5 +105,5 @@ pub fn prove(pkg: &str, prover_toml: &str) -> std::io::Result<()> {
     if !status.success() {
         return Err(std::io::Error::other(format!("prove.sh {pkg} failed: {status}")));
     }
-    Ok(())
+    Ok(circuits.join("target").join(format!("{pkg}-out")))
 }

@@ -48,6 +48,12 @@ fn vectors() {
     let mut one = Tree::new();
     one.set(5, account);
     println!("root(leaf@5)           = {}", to_hex(&one.root(&hasher)));
+
+    // DA fold step (DOMAIN_DA=7, 3-input): acc' = P2([7, acc, msg]).
+    println!(
+        "da_fold(0, 42)         = {}",
+        to_hex(&hasher.hash(&[fr_from_u64(7), fr_from_u64(0), fr_from_u64(42)]))
+    );
 }
 
 fn sig_vectors() {
@@ -86,7 +92,7 @@ fn wd_addr() -> String {
 }
 
 fn demo_batch() {
-    use harness::batch::{build_batch, DepositRequest, TxRequest};
+    use harness::batch::{build_batch, make_signed_tx, DepositRequest};
     use harness::l1::address_to_field;
     use harness::prover;
     use harness::tree::Tree;
@@ -101,6 +107,10 @@ fn demo_batch() {
     let wd_field = address_to_field(&hasher, &wd_addr);
 
     let mut tree = Tree::new();
+    let txs = [
+        make_signed_tx(&hasher, &alice, bob.pk_x(), 200, 0, false, &mut rng),
+        make_signed_tx(&hasher, &bob, wd_field, 100, 0, true, &mut rng),
+    ];
     let witness = build_batch(
         &hasher,
         &mut tree,
@@ -110,17 +120,15 @@ fn demo_batch() {
             DepositRequest { pk_x: alice.pk_x(), amount: 1000 },
             DepositRequest { pk_x: bob.pk_x(), amount: 500 },
         ],
-        &[
-            TxRequest { from: &alice, to_field: bob.pk_x(), amount: 200, is_withdraw: false },
-            TxRequest { from: &bob, to_field: wd_field, amount: 100, is_withdraw: true },
-        ],
-        &mut rng,
-    );
+        &txs,
+    )
+    .expect("demo batch must build");
 
     println!("old_root      = {}", to_hex(&witness.old_root));
     println!("new_root      = {}", to_hex(&witness.new_root));
     println!("deposit_hash  = {}", to_hex(&witness.deposit_hash));
     println!("withdraw_hash = {}", to_hex(&witness.withdraw_hash));
+    println!("da_commitment = {}", to_hex(&witness.da_commitment));
 
     // Metadata for the contract test to replay the same scenario.
     let meta = serde_json::json!({
@@ -128,6 +136,7 @@ fn demo_batch() {
         "new_root": to_hex(&witness.new_root),
         "deposit_hash": to_hex(&witness.deposit_hash),
         "withdraw_hash": to_hex(&witness.withdraw_hash),
+        "da_commitment": to_hex(&witness.da_commitment),
         "deposits": [
             { "pk_x": to_hex(&alice.pk_x()), "amount": 1000 },
             { "pk_x": to_hex(&bob.pk_x()), "amount": 500 },
@@ -154,7 +163,7 @@ fn demo_batch() {
         "new_root": to_hex(&witness.new_root).trim_start_matches("0x"),
         "deposit_count": 2,
         "withdrawals": [ { "dest": wd_addr, "amount": "100" } ],
-        "txs_blob": hex(b"spike-da-blob"),
+        "da_commitment": to_hex(&witness.da_commitment).trim_start_matches("0x"),
         "proof": hex(&proof),
     });
     std::fs::write(
@@ -168,11 +177,12 @@ fn demo_batch() {
 /// D deposits + N txs (N-2 transfers, 2 withdrawals) purely for cost-scaling
 /// measurements; no meta/envelope needed (measured via the verify entrypoint).
 fn demo_batch_sized(d: usize, n: usize, pkg: &str) {
-    use harness::batch::{build_batch, DepositRequest, TxRequest};
+    use harness::batch::{build_batch, make_signed_tx, DepositRequest};
     use harness::l1::address_to_field;
     use harness::prover;
     use harness::tree::Tree;
     use rand::SeedableRng;
+    use std::collections::HashMap;
 
     let hasher = Hasher::new();
     let mut rng = rand::rngs::StdRng::seed_from_u64(2);
@@ -188,16 +198,27 @@ fn demo_batch_sized(d: usize, n: usize, pkg: &str) {
         .map(|u| DepositRequest { pk_x: u.pk_x(), amount: 1_000_000 })
         .collect();
 
+    let mut nonces: HashMap<usize, u64> = HashMap::new();
+    let mut next_nonce = |user: usize| {
+        let n = nonces.entry(user).or_insert(0);
+        let cur = *n;
+        *n += 1;
+        cur
+    };
+
     let mut txs = Vec::new();
     for i in 0..n - 2 {
-        let from = &users[i % d];
+        let from = i % d;
         let to = &users[(i + 1) % d];
-        txs.push(TxRequest { from, to_field: to.pk_x(), amount: 50 + i as u64, is_withdraw: false });
+        let nonce = next_nonce(from);
+        txs.push(make_signed_tx(&hasher, &users[from], to.pk_x(), 50 + i as u64, nonce, false, &mut rng));
     }
-    txs.push(TxRequest { from: &users[0], to_field: wd_field, amount: 77, is_withdraw: true });
-    txs.push(TxRequest { from: &users[1], to_field: wd_field, amount: 88, is_withdraw: true });
+    let n0 = next_nonce(0);
+    txs.push(make_signed_tx(&hasher, &users[0], wd_field, 77, n0, true, &mut rng));
+    let n1 = next_nonce(1);
+    txs.push(make_signed_tx(&hasher, &users[1], wd_field, 88, n1, true, &mut rng));
 
-    let witness = build_batch(&hasher, &mut tree, d, n, &deposits, &txs, &mut rng);
+    let witness = build_batch(&hasher, &mut tree, d, n, &deposits, &txs).expect("demo batch must build");
     println!("new_root = {}", to_hex(&witness.new_root));
 
     let toml = prover::to_prover_toml(&witness);

@@ -16,6 +16,7 @@ const META: &str = include_str!("../../../fixtures/batch_n4/meta.json");
 struct Meta {
     old_root: [u8; 32],
     new_root: [u8; 32],
+    da_commitment: [u8; 32],
     alice_pk_x: [u8; 32],
     bob_pk_x: [u8; 32],
     wd_dest: String,
@@ -35,6 +36,7 @@ fn meta() -> Meta {
     Meta {
         old_root: hex32(v["old_root"].as_str().unwrap()),
         new_root: hex32(v["new_root"].as_str().unwrap()),
+        da_commitment: hex32(v["da_commitment"].as_str().unwrap()),
         alice_pk_x: hex32(v["deposits"][0]["pk_x"].as_str().unwrap()),
         bob_pk_x: hex32(v["deposits"][1]["pk_x"].as_str().unwrap()),
         wd_dest: v["withdrawals"][0]["dest"].as_str().unwrap().to_string(),
@@ -80,7 +82,7 @@ fn fixture_envelope(env: &Env, m: &Meta) -> BatchEnvelope {
         new_root: BytesN::from_array(env, &m.new_root),
         deposit_count: 2,
         withdrawals: vec![env, Withdrawal { dest: wd_dest, amount: 100 }],
-        txs_blob: Bytes::from_slice(env, b"spike-da-blob"),
+        da_commitment: BytesN::from_array(env, &m.da_commitment),
         proof: Bytes::from_slice(env, PROOF),
     }
 }
@@ -135,6 +137,20 @@ fn fixture_public_inputs_match_contract_assembly() {
     let m = meta();
     assert_eq!(&PUBLIC_INPUTS[..32], &m.old_root);
     assert_eq!(&PUBLIC_INPUTS[32..64], &m.new_root);
+}
+
+#[test]
+fn tampered_da_commitment_fails() {
+    // A sequencer claiming a different DA blob than the one proven must be
+    // rejected — this is the validium's data-binding guarantee.
+    let s = setup();
+    do_deposits(&s);
+    let mut envelope = fixture_envelope(&s.env, &s.meta);
+    let mut tampered = s.meta.da_commitment;
+    tampered[31] ^= 0x01;
+    envelope.da_commitment = BytesN::from_array(&s.env, &tampered);
+    let sequencer = Address::generate(&s.env);
+    assert!(s.rollup.try_submit_batch(&sequencer, &envelope).is_err());
 }
 
 #[test]

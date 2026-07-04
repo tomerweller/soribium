@@ -10,6 +10,7 @@ global HASH4_1_2_3_4: Field = 0x130bf204a32cac1f0ace56c78b731aa3809f06df2731ebcf
 global EMPTY_ROOT_D8: Field = 0x067243231eddf4222f3911defbba7705aff06ed45960b27f6f91319196ef97e1;
 global LEAF_1234_100_0: Field = 0x08e85e74234a7e239d871de3fbd4ffba29f93e4c5eab3e47a50abe2dad310ecc;
 global ROOT_LEAF_AT_5: Field = 0x185afc939981ef9614d18623d87027a99db0117e16009e87db82b7bfab7865cb;
+global DA_FOLD_0_42: Field = 0x04753fb4f4ed6d02388a18f3b84e56dfc5b22dcd77ec8acf81ca9257bdfae3e3;
 
 fn zeros() -> [Field; DEPTH + 1] {
     let mut z = [0; DEPTH + 1];
@@ -39,6 +40,12 @@ fn empty_root_matches_harness() {
 fn leaf_hash_matches_harness() {
     let leaf = leaf_value(Account { pk_x: 1234, balance: 100, nonce: 0 });
     assert(leaf == LEAF_1234_100_0);
+}
+
+#[test]
+fn da_fold_matches_harness() {
+    // The validium DA commitment fold: acc' = P2([DOMAIN_DA, acc, msg], 3).
+    assert(Poseidon2::hash([crate::tx::DOMAIN_DA, 0, 42], 3) == DA_FOLD_0_42);
 }
 
 #[test]

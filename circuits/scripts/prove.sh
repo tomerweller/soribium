@@ -28,7 +28,7 @@ PROOF_LEN=14592
 
 OUT="target/${PKG}-out"
 FIXTURES="../fixtures/${PKG}"
-mkdir -p "$OUT" "$FIXTURES"
+mkdir -p "$OUT"
 
 echo "==> nargo compile + execute (${PKG})"
 "$NARGO" compile --package "$PKG"
@@ -64,6 +64,10 @@ if [ "$proof_len" -ne "$PROOF_LEN" ]; then
   exit 1
 fi
 
-cp "$OUT/proof" "$OUT/public_inputs" "$OUT/vk.bin" "$FIXTURES/"
-echo "==> staged fixtures/${PKG}/{proof, public_inputs, vk.bin}"
+# Fixture staging is a repo-development convenience; the sequencer (Docker)
+# reads the output dir directly and sets STAGE_FIXTURES=0.
+if [ "${STAGE_FIXTURES:-1}" = "1" ] && mkdir -p "$FIXTURES" 2>/dev/null; then
+  cp "$OUT/proof" "$OUT/public_inputs" "$OUT/vk.bin" "$FIXTURES/"
+  echo "==> staged fixtures/${PKG}/{proof, public_inputs, vk.bin}"
+fi
 echo "    proof=${proof_len}B vk.bin=${packed_len}B public_inputs=$(wc -c < "$OUT/public_inputs")B"

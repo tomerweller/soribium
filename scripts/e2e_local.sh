@@ -80,6 +80,10 @@ stellar contract invoke --id "$ROLLUP" --source seq-e2e --network "$NET" -- \
   deposit --from "$SEQ" --l2_pk_x "$BOB_PK" --amount 500 > /dev/null
 
 echo "==> submit_batch (simulate for costs, then send)"
+# The fixture withdrawal destination is a fixed C-address that accumulates
+# across runs on persistent networks — assert the delta, not the absolute.
+WD_BAL_BEFORE=$(stellar contract invoke --id "$TOKEN" --source seq-e2e --network "$NET" --send=no -- balance --id "$WD_DEST" 2>/dev/null | tr -d '"')
+WD_BAL_BEFORE=${WD_BAL_BEFORE:-0}
 ENVELOPE=$(cat fixtures/batch_n4/envelope.json)
 BATCH_TX=$(stellar contract invoke --id "$ROLLUP" --source seq-e2e --network "$NET" --build-only -- \
   submit_batch --sequencer "$SEQ" --envelope "$ENVELOPE")
@@ -100,7 +104,7 @@ PENDING=$(stellar contract invoke --id "$ROLLUP" --source seq-e2e --network "$NE
 [ "$PENDING" = "0" ] && echo "    deposit queue drained ✓" || { echo "pending=$PENDING"; exit 1; }
 
 WD_BAL=$(stellar contract invoke --id "$TOKEN" --source seq-e2e --network "$NET" --send=no -- balance --id "$WD_DEST" 2>/dev/null | tr -d '"')
-[ "$WD_BAL" = "100" ] && echo "    withdrawal paid out (100) ✓" || { echo "wd balance=$WD_BAL"; exit 1; }
+[ "$((WD_BAL - WD_BAL_BEFORE))" = "100" ] && echo "    withdrawal paid out (+100) ✓" || { echo "wd balance=$WD_BAL (before=$WD_BAL_BEFORE)"; exit 1; }
 
 ESCROW=$(stellar contract invoke --id "$TOKEN" --source seq-e2e --network "$NET" --send=no -- balance --id "$ROLLUP" 2>/dev/null | tr -d '"')
 [ "$ESCROW" = "1400" ] && echo "    escrow balance 1400 ✓" || { echo "escrow=$ESCROW"; exit 1; }

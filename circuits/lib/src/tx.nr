@@ -13,6 +13,7 @@ use dep::poseidon::poseidon2::Poseidon2;
 pub global DOMAIN_TX: Field = 2;
 pub global DOMAIN_DEP: Field = 4;
 pub global DOMAIN_WD: Field = 5;
+pub global DOMAIN_DA: Field = 7;
 
 // Fixed padding signature: sk=7, k=13, msg=42 over Grumpkin (harness
 // keys::pad_signature() regenerates; schnorr_test pins the same values).
@@ -95,8 +96,13 @@ pub struct TxWitness {
     pub sig: Signature,
 }
 
-/// Apply one signed L2 transaction; returns (new_root, new_withdraw_fold).
-pub fn apply_tx(root: Field, wd_acc: Field, t: TxWitness) -> (Field, Field) {
+/// Apply one signed L2 transaction; returns (new_root, new_withdraw_fold,
+/// new_da_fold). The DA fold binds the tx's signing message - which already
+/// commits to (from_pk_x, to_field, amount, nonce, is_withdraw), i.e.
+/// everything needed to reconstruct state from the published blob.
+/// Signatures ship in the blob as audit data but are not commitment-bound
+/// (authorization is already established by this proof).
+pub fn apply_tx(root: Field, wd_acc: Field, da_acc: Field, t: TxWitness) -> (Field, Field, Field) {
     assert(t.is_active * (1 - t.is_active) == 0);
     assert(t.is_withdraw * (1 - t.is_withdraw) == 0);
     assert_u64(t.amount);
@@ -157,5 +163,9 @@ pub fn apply_tx(root: Field, wd_acc: Field, t: TxWitness) -> (Field, Field) {
     let folded = Poseidon2::hash([DOMAIN_WD, wd_acc, t.to_field, t.amount], 4);
     let new_wd_acc = select(is_withdrawal, folded, wd_acc);
 
-    (root2, new_wd_acc)
+    // --- DA commitment fold (validium: binds the published tx blob) ---
+    let da_folded = Poseidon2::hash([DOMAIN_DA, da_acc, msg], 3);
+    let new_da_acc = select(t.is_active, da_folded, da_acc);
+
+    (root2, new_wd_acc, new_da_acc)
 }

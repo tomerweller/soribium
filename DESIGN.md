@@ -1,4 +1,8 @@
-# Payments ZK-Rollup Spike — Design Spec
+# Soribium — Design Spec
+
+Soribium is a payments ZK-rollup operating as a **validium** on Stellar
+testnet: batch transaction data lives off-chain (served by the sequencer's DA
+endpoint) and is bound on-chain by a proven commitment.
 
 Single source of truth for hash layouts, domains, and message formats shared by
 the Noir circuits, the Soroban contract, and the Rust harness. If a constant
@@ -34,6 +38,7 @@ Domain separators (Fr constants):
 | `DOMAIN_DEP` | 4 | deposit-list fold |
 | `DOMAIN_WD` | 5 | withdrawal-list fold |
 | `DOMAIN_ADDR` | 6 | address_to_field |
+| `DOMAIN_DA` | 7 | DA-blob commitment fold (validium) |
 
 ## State tree
 
@@ -65,10 +70,11 @@ Schnorr over Grumpkin (hand-rolled; std::schnorr no longer exists):
 ```
 main(old_root: pub Field, new_root: pub Field,
      deposit_hash: pub Field, withdraw_hash: pub Field,
+     da_commitment: pub Field,
      deposits: [Deposit; D], txs: [Tx; N])
 ```
 
-Exactly 4 public inputs (128-byte PI blob), all recomputed/held on-chain:
+Exactly 5 public inputs (160-byte PI blob):
 
 - `old_root` — contract storage.
 - `new_root` — envelope, becomes storage after verification.
@@ -78,6 +84,14 @@ Exactly 4 public inputs (128-byte PI blob), all recomputed/held on-chain:
   (queue-race prevention).
 - `withdraw_hash` — same fold shape with `DOMAIN_WD` over
   `(address_to_field(dest), amount)` pairs from the envelope.
+- `da_commitment` — fold over each **active** tx's signing message, in order:
+  `acc' = Poseidon2([DOMAIN_DA, acc, tx_msg])` (3-input), `acc₀ = 0`. The
+  message already binds `(from_pk_x, to_field, amount, nonce, is_withdraw)` —
+  everything needed to reconstruct state from the published blob. Taken from
+  the envelope (prover-supplied) and bound by the proof; verifiers fetch the
+  blob from the sequencer's `GET /da/:batch_num` and re-fold. Signatures ship
+  in the blob as audit data but are NOT commitment-bound (authorization is
+  already established by the proof itself).
 
 `address_to_field` = Poseidon2 over the 56-byte strkey split into two 28-byte
 limbs with `DOMAIN_ADDR` (ported from OZ confidential storage.rs).
@@ -85,13 +99,22 @@ limbs with `DOMAIN_ADDR` (ported from OZ confidential storage.rs).
 Padding: `is_active = 0` entries freeze both the running root and the fold
 accumulators.
 
-## Envelope (submit_batch argument, XDR)
+## Envelope (submit_batch argument)
 
-`{ new_root: BytesN<32>, deposit_count: u32, withdrawals: Vec<(Address, i128)>, txs_blob: Bytes, proof: Bytes }`
+`{ new_root: BytesN<32>, deposit_count: u32, withdrawals: Vec<Withdrawal>, da_commitment: BytesN<32>, proof: Bytes }`
 
-- `txs_blob` is carried for DA measurement but **not cryptographically bound**
-  in the spike (production: hash it in-circuit, ≈1 Poseidon2 absorb/tx).
+- The tx blob itself never touches the chain (validium): it is stored in the
+  sequencer's SQLite and served at `GET /da/:batch_num`, bound by
+  `da_commitment` (see above).
 - Withdrawals executed inline, capped ≤ 8/batch.
+
+## Validium trust model
+
+Validity is trustless (every root advance is proven). Data availability is
+trusted to the sequencer operator: if the operator withholds a blob, users
+cannot recompute Merkle paths for newer roots and the system freezes (funds
+cannot be stolen). Production hardening path: DAC signatures over
+`da_commitment` verified in `submit_batch`.
 
 ## Known spike caveats (production deltas)
 

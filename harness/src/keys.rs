@@ -67,6 +67,36 @@ impl Signature {
         hi[16..].copy_from_slice(&full[..16]);
         (lo, hi)
     }
+
+    /// Reconstruct from wire format (untrusted wallet input): s = lo + hi·2^128.
+    /// Rejects limbs that don't fit 128 bits — a non-canonical split would
+    /// make the wire encoding ambiguous.
+    pub fn from_limbs(r_x: Fr, r_y: Fr, s_lo: Fr, s_hi: Fr) -> Option<Signature> {
+        if s_lo[..16] != [0u8; 16] || s_hi[..16] != [0u8; 16] {
+            return None;
+        }
+        let mut full = [0u8; 32];
+        full[..16].copy_from_slice(&s_hi[16..]);
+        full[16..].copy_from_slice(&s_lo[16..]);
+        // BigInt < 2^256; reduction into the scalar field is fine here: any
+        // s' ≥ n is equivalent to s' mod n for verification, and the limb
+        // check above already pins the byte encoding uniquely.
+        let s = Scalar::from_be_bytes_mod_order(&full);
+        Some(Signature { r_x, r_y, s })
+    }
+}
+
+/// Reconstruct a public key from untrusted wire coordinates, checking curve
+/// membership (Grumpkin has cofactor 1, so on-curve implies correct subgroup).
+pub fn pk_from_coords(pk_x: &Fr, pk_y: &Fr) -> Option<Affine> {
+    let p = Affine::new_unchecked(
+        Coord::from_be_bytes_mod_order(pk_x),
+        Coord::from_be_bytes_mod_order(pk_y),
+    );
+    if !p.is_on_curve() || p.infinity {
+        return None;
+    }
+    Some(p)
 }
 
 /// The Schnorr challenge. Its output is a BN254-Fr element; lifting it into

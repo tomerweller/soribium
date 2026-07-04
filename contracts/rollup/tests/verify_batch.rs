@@ -24,7 +24,7 @@ fn batch_proof_verifies() {
     env.cost_estimate().budget().reset_unlimited();
     let client = setup(&env);
 
-    assert_eq!(PUBLIC_INPUTS.len(), 128, "4 public inputs expected");
+    assert_eq!(PUBLIC_INPUTS.len(), 160, "5 public inputs expected");
     let proof = Bytes::from_slice(&env, PROOF);
     let pis = Bytes::from_slice(&env, PUBLIC_INPUTS);
 
