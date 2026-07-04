@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "node dev/mock-server.mjs",
     "build": "tsc --noEmit && vite build",
     "test": "vitest",
     "preview": "vite preview"
@@ -21,6 +22,7 @@
     "react-router-dom": "^7.1.0"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.0",
