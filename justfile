@@ -1,5 +1,10 @@
 export PATH := env_var("HOME") + "/.nargo/bin:" + env_var("HOME") + "/.bb:" + env_var("PATH")
 
+# Load .env (written by `just bootstrap`) for the sequencer recipe. just's
+# dotenv parser handles quoted values with spaces/semicolons correctly.
+set dotenv-load := true
+set dotenv-required := false
+
 # List recipes
 default:
     @just --list
@@ -47,7 +52,7 @@ bootstrap:
 
 # Run the sequencer natively (fast proving on Apple Silicon); reads .env
 sequencer:
-    set -a && . ./.env && set +a && cargo run --release -p sequencer
+    cargo run --release -p sequencer
 
 # Wallet dev server against the fixture mock (no backend needed)
 wallet-dev:
