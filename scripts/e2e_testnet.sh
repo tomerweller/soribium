@@ -89,9 +89,14 @@ PROOF_LEN=$(curl -s "$URL/da/2" | grep -o '"proof":"[0-9a-f]*"' | head -1 | tr -
 [ "$PROOF_LEN" -gt 20000 ] || fail "DA blob proof missing (len=$PROOF_LEN)"
 echo "    DA blob for batch 2 served (proof present)"
 
-# Negative: replayed nonce must 409.
-REPLAY=$($SIM send 101 "$BOB" 1 0 2>&1 || true)
-echo "$REPLAY" | grep -qE "NONCE_MISMATCH|error" || fail "replay of nonce 0 was not rejected"
-echo "    replay/stale-nonce rejected"
+# Anti-replay: resubmitting alice's consumed nonce 0 must NOT re-execute —
+# the (sender,nonce) idempotency short-circuit returns the original included
+# receipt.
+REPLAY=$($SIM send 101 "$BOB" 200000 0 2>&1 || true)
+echo "$REPLAY" | grep -q '"status":"included"' || fail "replay of nonce 0 was re-executed: $REPLAY"
+# A future/gap nonce must be rejected outright.
+GAP=$($SIM send 101 "$BOB" 1 5 2>&1 || true)
+echo "$GAP" | grep -q "NONCE_MISMATCH" || fail "gap nonce 5 was not rejected: $GAP"
+echo "    replay idempotent + gap-nonce rejected"
 
 echo "==> E2E PASSED"
