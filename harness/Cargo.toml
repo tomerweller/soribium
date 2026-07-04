@@ -11,3 +11,5 @@ publish = false
 # noir-lang/poseidon equivalence) the circuits.
 soroban-sdk = { workspace = true, features = ["alloc", "testutils"] }
 soroban-poseidon = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
