@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["contracts/rollup", "harness"]
+members = ["contracts/rollup", "harness", "sequencer"]
 
 [workspace.package]
 edition = "2021"
@@ -27,3 +27,8 @@ overflow-checks = true
 [profile.release-with-logs]
 inherits = "release"
 debug-assertions = true
+
+# The wasm profile above optimizes for size; the sequencer is a server —
+# optimize it (and its hot dependencies) for speed instead.
+[profile.release.package.sequencer]
+opt-level = 3

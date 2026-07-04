@@ -1,0 +1,32 @@
+[package]
+name = "sequencer"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+default-run = "sequencer"
+
+[[bin]]
+name = "sequencer"
+path = "src/main.rs"
+
+[[bin]]
+name = "wallet-sim"
+path = "src/bin/wallet_sim.rs"
+
+[dependencies]
+harness = { path = "../harness" }
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+hex = "0.4"
+
+# wallet-sim test client only
+rand = "0.8"
+ark-grumpkin = "0.5"
