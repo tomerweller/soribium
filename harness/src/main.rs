@@ -6,6 +6,8 @@ fn main() {
     match mode.as_str() {
         // Shared test vectors pinned in circuits/lib tests (M2 checkpoint).
         "vectors" => vectors(),
+        // Schnorr vectors pinned in circuits/lib tests (M3 checkpoint).
+        "sig-vectors" => sig_vectors(),
         _ => {
             eprintln!("usage: harness vectors");
             std::process::exit(2);
@@ -41,4 +43,29 @@ fn vectors() {
     let mut one = Tree::new();
     one.set(5, account);
     println!("root(leaf@5)           = {}", to_hex(&one.root(&hasher)));
+}
+
+fn sig_vectors() {
+    use ark_ec::AffineRepr;
+    use harness::keys::{coord_to_fr, sign_with_nonce, verify, Keypair};
+
+    let hasher = Hasher::new();
+    let gen = ark_grumpkin::Affine::generator();
+    println!("gen_x   = {}", to_hex(&coord_to_fr(&gen.x)));
+    println!("gen_y   = {}", to_hex(&coord_to_fr(&gen.y)));
+
+    // Deterministic vector: sk = 7, k = 13, msg = 42.
+    let keypair = Keypair::from_sk(ark_grumpkin::Fr::from(7u64));
+    println!("pk_x    = {}", to_hex(&keypair.pk_x()));
+    println!("pk_y    = {}", to_hex(&keypair.pk_y()));
+
+    let msg = fr_from_u64(42);
+    let sig = sign_with_nonce(&hasher, &keypair, msg, ark_grumpkin::Fr::from(13u64));
+    assert!(verify(&hasher, &keypair.pk, msg, &sig), "self-check failed");
+    let (s_lo, s_hi) = sig.s_limbs();
+    println!("msg     = 42");
+    println!("r_x     = {}", to_hex(&sig.r_x));
+    println!("r_y     = {}", to_hex(&sig.r_y));
+    println!("s_lo    = {}", to_hex(&s_lo));
+    println!("s_hi    = {}", to_hex(&s_hi));
 }
