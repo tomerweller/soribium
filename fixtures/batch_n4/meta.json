@@ -12,11 +12,11 @@
   ],
   "new_root": "0x2f42c91985aad7b43e79305c478f9a9bc58522c2fc51ed4ab51fce88faf126be",
   "old_root": "0x067243231eddf4222f3911defbba7705aff06ed45960b27f6f91319196ef97e1",
-  "withdraw_hash": "0x1bb5c6df5cd0284b12fc196224bdc7422a994adf046eb5817c24dc9059b40cd2",
+  "withdraw_hash": "0x2feba35af40cfd8774f9593d6bc43cc5c43ff0f8e682294b747f84c072fc9ac3",
   "withdrawals": [
     {
       "amount": 100,
-      "dest": "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF"
+      "dest": "CADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQP5KR"
     }
   ]
 }

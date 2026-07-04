@@ -17,3 +17,4 @@ ultrahonk-soroban-verifier = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["alloc", "testutils"] }
+serde_json = "1"

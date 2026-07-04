@@ -4,7 +4,8 @@
 //! installed; regenerate with `just prove trivial`.
 
 use rollup::{RollupContract, RollupContractClient};
-use soroban_sdk::{Bytes, Env};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, Bytes, BytesN, Env};
 
 const VK: &[u8] = include_bytes!("../../../fixtures/trivial/vk.bin");
 const PROOF: &[u8] = include_bytes!("../../../fixtures/trivial/proof");
@@ -12,7 +13,9 @@ const PUBLIC_INPUTS: &[u8] = include_bytes!("../../../fixtures/trivial/public_in
 
 fn setup(env: &Env) -> RollupContractClient<'_> {
     let vk = Bytes::from_slice(env, VK);
-    let id = env.register(RollupContract, (vk,));
+    let token = Address::generate(env);
+    let genesis = BytesN::from_array(env, &[0u8; 32]);
+    let id = env.register(RollupContract, (token, vk, genesis));
     RollupContractClient::new(env, &id)
 }
 

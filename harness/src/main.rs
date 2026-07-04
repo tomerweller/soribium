@@ -75,8 +75,12 @@ fn sig_vectors() {
 /// The deterministic scenario replayed by the contract's custody-loop test
 /// (contracts/rollup/tests/custody_loop.rs). Every constant here is part of
 /// the fixture contract between harness and test: alice sk=101 deposits 1000,
-/// bob sk=202 deposits 500, alice pays bob 200, bob withdraws 100 to WD_ADDR.
-const WD_ADDR: &str = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
+/// bob sk=202 deposits 500, alice pays bob 200, bob withdraws 100 to the
+/// contract-type address derived from [7u8; 32] (C-addresses receive SAC
+/// tokens without a trustline, so the test can assert its balance directly).
+fn wd_addr() -> String {
+    stellar_strkey::Contract([7u8; 32]).to_string()
+}
 
 fn demo_batch() {
     use harness::batch::{build_batch, DepositRequest, TxRequest};
@@ -90,7 +94,8 @@ fn demo_batch() {
 
     let alice = harness::keys::Keypair::from_sk(ark_grumpkin::Fr::from(101u64));
     let bob = harness::keys::Keypair::from_sk(ark_grumpkin::Fr::from(202u64));
-    let wd_field = address_to_field(&hasher, WD_ADDR);
+    let wd_addr = wd_addr();
+    let wd_field = address_to_field(&hasher, &wd_addr);
 
     let mut tree = Tree::new();
     let witness = build_batch(
@@ -124,7 +129,7 @@ fn demo_batch() {
             { "pk_x": to_hex(&alice.pk_x()), "amount": 1000 },
             { "pk_x": to_hex(&bob.pk_x()), "amount": 500 },
         ],
-        "withdrawals": [ { "dest": WD_ADDR, "amount": 100 } ],
+        "withdrawals": [ { "dest": wd_addr, "amount": 100 } ],
     });
     let root = prover::repo_root();
     let fixture_dir = root.join("fixtures/batch_n4");

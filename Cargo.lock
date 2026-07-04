@@ -749,6 +749,7 @@ dependencies = [
  "serde_json",
  "soroban-poseidon",
  "soroban-sdk",
+ "stellar-strkey 0.0.13",
 ]
 
 [[package]]
@@ -1163,6 +1164,7 @@ dependencies = [
 name = "rollup"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "soroban-poseidon",
  "soroban-sdk",
  "ultrahonk_soroban_verifier",
