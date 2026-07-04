@@ -119,6 +119,7 @@ pub fn verify(hasher: &Hasher, pk: &Affine, msg: Fr, sig: &Signature) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_ff::Field as _;
 
     #[test]
     fn sign_verify_roundtrip() {

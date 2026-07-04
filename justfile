@@ -31,5 +31,15 @@ test:
 build-contract:
     stellar contract build
 
+# Regenerate all proof fixtures (nargo + bb required)
+prove-demo:
+    cargo run -q -p harness -- demo-batch
+    cargo run -q -p harness -- demo-batch-n16
+
+# Full custody loop against localnet with resource measurements
+# (requires: stellar container start local --protocol-version 26 --limits unlimited)
+e2e-local: build-contract
+    scripts/e2e_local.sh
+
 # Everything a fresh checkout needs to go green
 check: setup-check test-circuits test

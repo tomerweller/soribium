@@ -10,6 +10,8 @@ fn main() {
         "sig-vectors" => sig_vectors(),
         // Deterministic demo batch -> Prover.toml -> bb -> fixtures/batch_n4.
         "demo-batch" => demo_batch(),
+        // Larger batch for cost-scaling measurements -> fixtures/batch_n16.
+        "demo-batch-n16" => demo_batch_n16(),
         _ => {
             eprintln!("usage: harness vectors");
             std::process::exit(2);
@@ -142,4 +144,61 @@ fn demo_batch() {
 
     let toml = prover::to_prover_toml(&witness);
     prover::prove("batch_n4", &toml).expect("prove pipeline failed");
+
+    // CLI-ready envelope (stellar contract invoke JSON arg conventions:
+    // BytesN/Bytes as hex, Address as strkey, struct fields snake_case).
+    let proof = std::fs::read(fixture_dir.join("proof")).unwrap();
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    let envelope = serde_json::json!({
+        "new_root": to_hex(&witness.new_root).trim_start_matches("0x"),
+        "deposit_count": 2,
+        "withdrawals": [ { "dest": wd_addr, "amount": "100" } ],
+        "txs_blob": hex(b"spike-da-blob"),
+        "proof": hex(&proof),
+    });
+    std::fs::write(
+        fixture_dir.join("envelope.json"),
+        serde_json::to_string(&envelope).unwrap(),
+    )
+    .unwrap();
+    println!("wrote fixtures/batch_n4/{{meta.json, envelope.json}}");
+}
+
+/// 4 deposits + 16 txs (14 transfers, 2 withdrawals) purely for cost-scaling
+/// measurements; no meta/envelope needed (measured via the verify entrypoint).
+fn demo_batch_n16() {
+    use harness::batch::{build_batch, DepositRequest, TxRequest};
+    use harness::l1::address_to_field;
+    use harness::prover;
+    use harness::tree::Tree;
+    use rand::SeedableRng;
+
+    let hasher = Hasher::new();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(2);
+
+    let users: Vec<harness::keys::Keypair> = (0..4)
+        .map(|i| harness::keys::Keypair::from_sk(ark_grumpkin::Fr::from(301u64 + i)))
+        .collect();
+    let wd_field = address_to_field(&hasher, &wd_addr());
+
+    let mut tree = Tree::new();
+    let deposits: Vec<DepositRequest> = users
+        .iter()
+        .map(|u| DepositRequest { pk_x: u.pk_x(), amount: 10_000 })
+        .collect();
+
+    let mut txs = Vec::new();
+    for i in 0..14usize {
+        let from = &users[i % 4];
+        let to = &users[(i + 1) % 4];
+        txs.push(TxRequest { from, to_field: to.pk_x(), amount: 50 + i as u64, is_withdraw: false });
+    }
+    txs.push(TxRequest { from: &users[0], to_field: wd_field, amount: 77, is_withdraw: true });
+    txs.push(TxRequest { from: &users[1], to_field: wd_field, amount: 88, is_withdraw: true });
+
+    let witness = build_batch(&hasher, &mut tree, 4, 16, &deposits, &txs, &mut rng);
+    println!("new_root = {}", to_hex(&witness.new_root));
+
+    let toml = prover::to_prover_toml(&witness);
+    prover::prove("batch_n16", &toml).expect("prove pipeline failed");
 }
