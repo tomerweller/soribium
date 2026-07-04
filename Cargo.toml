@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["contracts/rollup", "harness"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.91"
+
+[workspace.dependencies]
+soroban-sdk = "26.0.0"
+soroban-poseidon = "26.0.0"
+# Pinned to the same commit OpenZeppelin's confidential-token branch uses:
+# the crate is pre-release and unaudited, so we track an exact rev.
+ultrahonk-soroban-verifier = { git = "https://github.com/NethermindEth/rs-soroban-ultrahonk", rev = "661db07200f890b1bd9a7349ed787c70a706dd12", package = "ultrahonk_soroban_verifier", default-features = false }
+
+# Size-optimized contract wasm (mirrors OZ/Nethermind release profiles).
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = 0
+debug-assertions = false
+overflow-checks = true
+
+[profile.release-with-logs]
+inherits = "release"
+debug-assertions = true

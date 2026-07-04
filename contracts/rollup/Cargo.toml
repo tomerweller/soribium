@@ -1,0 +1,19 @@
+[package]
+name = "rollup"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest = false
+
+[dependencies]
+# `alloc` is required by the UltraHonk verifier's no_std wasm build.
+soroban-sdk = { workspace = true, features = ["alloc"] }
+soroban-poseidon = { workspace = true }
+ultrahonk-soroban-verifier = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["alloc", "testutils"] }

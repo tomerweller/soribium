@@ -1,0 +1,13 @@
+[package]
+name = "harness"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# The harness computes every Poseidon2 hash through a Soroban Env so the
+# off-chain tree can never diverge from the contract or (via the proven
+# noir-lang/poseidon equivalence) the circuits.
+soroban-sdk = { workspace = true, features = ["alloc", "testutils"] }
+soroban-poseidon = { workspace = true }
