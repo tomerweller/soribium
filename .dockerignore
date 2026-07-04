@@ -1,0 +1,7 @@
+target
+wallet/node_modules
+wallet/dist
+**/*.db
+**/*.db-wal
+**/*.db-shm
+.git

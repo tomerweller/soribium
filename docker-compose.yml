@@ -1,0 +1,42 @@
+# Soribium local deployment: sequencer + wallet, talking to public Stellar
+# testnet. Run scripts/bootstrap_testnet.sh first to deploy the contract and
+# write .env.
+#
+# Apple Silicon note: the sequencer image is linux/amd64 (bb ships amd64-linux
+# only) and runs under emulation — give colima/Docker Desktop ≥4GB and enable
+# Rosetta. For fast local dev, run the sequencer natively (`just sequencer`)
+# and only containerize the wallet.
+services:
+  sequencer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    ports:
+      - "8080:8080"
+    volumes:
+      - seqdata:/data
+    environment:
+      RPC_URL: ${RPC_URL:-https://soroban-testnet.stellar.org}
+      NETWORK_PASSPHRASE: ${NETWORK_PASSPHRASE:-Test SDF Network ; September 2015}
+      CONTRACT_ID: ${CONTRACT_ID:?run scripts/bootstrap_testnet.sh first}
+      TOKEN_ID: ${TOKEN_ID:?}
+      SEQUENCER_SECRET: ${SEQUENCER_SECRET:?}
+      SEQUENCER_ADDRESS: ${SEQUENCER_ADDRESS:?}
+      BATCH_MAX_WAIT_SECS: ${BATCH_MAX_WAIT_SECS:-30}
+      CIRCUIT_PKG: batch_n16
+    restart: unless-stopped
+
+  wallet:
+    build:
+      context: ./wallet
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      SEQUENCER_URL: http://sequencer:8080
+    depends_on:
+      - sequencer
+
+volumes:
+  seqdata:

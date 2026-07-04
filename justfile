@@ -41,5 +41,28 @@ prove-demo:
 e2e-local: build-contract
     scripts/e2e_local.sh
 
+# Deploy a fresh Soribium instance to testnet + write .env
+bootstrap:
+    scripts/bootstrap_testnet.sh
+
+# Run the sequencer natively (fast proving on Apple Silicon); reads .env
+sequencer:
+    set -a && . ./.env && set +a && cargo run --release -p sequencer
+
+# Wallet dev server against the fixture mock (no backend needed)
+wallet-dev:
+    cd wallet && npm run dev:mock & sleep 1 && cd wallet && npm run dev
+
+# Wallet crypto + build
+wallet-test:
+    cd wallet && npm test -- --run && npm run build
+
+# Full local stack via docker-compose (needs .env from `just bootstrap`)
+up:
+    docker compose up -d --build
+
+down:
+    docker compose down
+
 # Everything a fresh checkout needs to go green
-check: setup-check test-circuits test
+check: setup-check test-circuits test wallet-test
