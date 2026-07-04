@@ -426,8 +426,16 @@ impl Engine {
         .flatten()
         .max()
         .unwrap_or(0);
-        let full = pending_txs >= self.cfg.tx_slots as u64 || pending_deps >= self.cfg.deposit_slots as u64;
-        if !full && (oldest_age as u64) < self.cfg.batch_max_wait_secs {
+
+        // Batch eagerly: whenever more than one payment is pending, build on
+        // this tick (no waiting to fill the batch or hit the timer). The
+        // deposit-queue-full and max-wait conditions remain as fallbacks so a
+        // lone single payment, or deposit-only activity with no payments,
+        // still settles instead of stranding.
+        let many_payments = pending_txs > 1;
+        let deposits_full = pending_deps >= self.cfg.deposit_slots as u64;
+        let waited = (oldest_age as u64) >= self.cfg.batch_max_wait_secs;
+        if !(many_payments || deposits_full || waited) {
             return Ok(None);
         }
 
