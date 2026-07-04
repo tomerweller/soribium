@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import QRCode from 'qrcode';
+import { friendlyError } from '../errors';
+import { ApiError } from '../api/sequencer';
 
 export function Badge({ ok, children }: { ok: boolean; children: ReactNode }) {
   return <span className={ok ? 'badge badge-ok' : 'badge badge-bad'}>{children}</span>;
@@ -37,6 +39,8 @@ export function Qr({ text }: { text: string }) {
 
 export function ErrorText({ error }: { error: unknown }) {
   if (!error) return null;
-  const msg = error instanceof Error ? error.message : String(error);
-  return <p className="error">{msg}</p>;
+  // RECIPIENT_UNKNOWN isn't a user mistake — it's expected for a brand-new
+  // payee — so present it as a neutral hint rather than a red error.
+  const isHint = error instanceof ApiError && error.code === 'RECIPIENT_UNKNOWN';
+  return <p className={isHint ? 'muted' : 'error'}>{friendlyError(error)}</p>;
 }
