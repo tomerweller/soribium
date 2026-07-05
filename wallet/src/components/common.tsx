@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import QRCode from 'qrcode';
 import { friendlyError } from '../errors';
 import { ApiError } from '../api/sequencer';
+import { shortHex } from '../format';
 
 export function Badge({ ok, children }: { ok: boolean; children: ReactNode }) {
   return <span className={ok ? 'badge badge-ok' : 'badge badge-bad'}>{children}</span>;
@@ -25,6 +26,30 @@ export function CopyButton({ text, label = 'copy' }: { text: string; label?: str
       }}
     >
       {copied ? 'copied ✓' : label}
+    </button>
+  );
+}
+
+/**
+ * A shortened hex/strkey value rendered as a click-to-copy chip. The whole
+ * thing copies the FULL value; hover shows it via the title attribute.
+ * Use everywhere an address, root, or hash is truncated for display.
+ */
+export function CopyableHex({ value, chars = 6 }: { value: string; chars?: number }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="copyable mono"
+      title={copied ? 'copied' : value}
+      onClick={async (e) => {
+        e.stopPropagation();
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+    >
+      {shortHex(value, chars)}
+      <span className="copy-ico">{copied ? '✓' : '⧉'}</span>
     </button>
   );
 }

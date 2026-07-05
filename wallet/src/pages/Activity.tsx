@@ -1,7 +1,7 @@
 import { useHistory } from '../api/queries';
 import { useKey } from '../keys/KeyContext';
-import { shortHex, stroopsToXlm } from '../format';
-import { StatusBadge } from '../components/common';
+import { stroopsToXlm } from '../format';
+import { CopyableHex, StatusBadge } from '../components/common';
 import { Onboarding } from './Onboarding';
 
 const KIND_LABEL: Record<string, string> = {
@@ -28,7 +28,7 @@ export function Activity() {
           <div className="list-row" key={`${e.status}-${e.id}`}>
             <div className="who">
               <span className="kind">{KIND_LABEL[e.kind] ?? e.kind}</span>
-              {e.counterparty && <span className="cp">{shortHex(e.counterparty, 6)}</span>}
+              {e.counterparty && <span className="cp"><CopyableHex value={e.counterparty} chars={6} /></span>}
             </div>
             <div className="row" style={{ gap: '0.6rem' }}>
               <span className={incoming ? 'amt-in' : 'amt-out'}>

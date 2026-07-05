@@ -70,6 +70,11 @@ button.primary, .btn {
 button.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); border-radius: 9px; padding: 0.7rem 1.1rem; width: 100%; }
 button.danger { background: transparent; color: var(--bad); border: 1px solid var(--bad); border-radius: 9px; padding: 0.6rem 1rem; width: 100%; }
 .btn-inline { background: transparent; color: var(--accent); border: 0; padding: 0 0.35rem; font-size: 0.82rem; }
+.copyable { background: transparent; border: 0; color: inherit; cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; gap: 0.3rem; font: inherit; }
+.copyable:hover { color: var(--accent); }
+.copyable .copy-ico { color: var(--muted); font-size: 0.85em; }
+.copyable:hover .copy-ico { color: var(--accent); }
 
 label { display: block; color: var(--muted); font-size: 0.82rem; margin: 0.9rem 0 0.3rem; }
 input {

@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useStatus, useBatches } from '../api/queries';
 import { readOnchainRoot } from '../api/stellar';
 import { SEQUENCER_URL, contractUrl } from '../config';
-import { shortHex } from '../format';
-import { Badge } from '../components/common';
+import { Badge, CopyableHex } from '../components/common';
 
 export function Explorer() {
   const { data: params } = useParams();
@@ -33,14 +32,20 @@ export function Explorer() {
           <div className="row"><span className="muted">Batch</span><span>#{status.batch_num}</span></div>
           <div className="row"><span className="muted">Pending txs / deposits</span><span>{status.pending_txs} / {status.pending_deposits}</span></div>
           <div className="row"><span className="muted">Chain synced</span><Badge ok={status.chain_synced}>{String(status.chain_synced)}</Badge></div>
+          {params && (
+            <div className="row">
+              <span className="muted">Contract</span>
+              <CopyableHex value={params.contract_id} chars={6} />
+            </div>
+          )}
           <div className="row" style={{ marginTop: '0.75rem' }}>
-            <span className="muted">Sequencer root</span><span className="mono">{shortHex(status.root, 8)}</span>
+            <span className="muted">Sequencer root</span><CopyableHex value={status.root} chars={8} />
           </div>
           <div className="row">
             <span className="muted">On-chain root</span>
             {chainRoot === undefined ? <span className="muted">…</span>
               : chainRoot === null ? <span className="muted">unavailable</span>
-              : <span className="mono">{shortHex(chainRoot, 8)}</span>}
+              : <CopyableHex value={chainRoot} chars={8} />}
           </div>
           {chainRoot != null && (
             <div className="row">
@@ -65,7 +70,7 @@ export function Explorer() {
           {batches.map((b) => (
             <tr key={b.batch_num}>
               <td>{b.batch_num}</td>
-              <td className="mono">{shortHex(b.new_root, 6)}</td>
+              <td><CopyableHex value={b.new_root} chars={6} /></td>
               <td>{b.status}</td>
               <td><a href={`${SEQUENCER_URL}/da/${b.batch_num}`} target="_blank" rel="noreferrer">download</a></td>
             </tr>

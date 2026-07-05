@@ -58,7 +58,7 @@ export function Deposit() {
 
   return (
     <div className="panel">
-      <a className="back" onClick={() => navigate('/')}>← Home</a>
+      <a className="back" onClick={() => navigate('/')}>← Wallet</a>
       <h2>Deposit</h2>
       <p className="muted">
         Move XLM from your Stellar account (via Freighter) into the rollup. It credits your L2

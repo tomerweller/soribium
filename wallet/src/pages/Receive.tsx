@@ -9,7 +9,7 @@ export function Receive() {
   if (!wallet) return <Onboarding />;
   return (
     <div className="panel center">
-      <a className="back" onClick={() => navigate('/')} style={{ float: 'left' }}>← Home</a>
+      <a className="back" onClick={() => navigate('/')} style={{ float: 'left' }}>← Wallet</a>
       <h2>Receive</h2>
       <p className="muted">Share your account id to get paid on the rollup.</p>
       <div style={{ display: 'flex', justifyContent: 'center', margin: '1rem 0' }}>

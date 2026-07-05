@@ -4,8 +4,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAccount } from '../api/queries';
 import { useKey } from '../keys/KeyContext';
 import { signAndSubmit } from '../api/sign';
-import { classifyRecipient, shortHex, stroopsToXlm, xlmToStroops } from '../format';
-import { ErrorText } from '../components/common';
+import { classifyRecipient, stroopsToXlm, xlmToStroops } from '../format';
+import { CopyableHex, ErrorText } from '../components/common';
 import { Onboarding } from './Onboarding';
 
 export function Send() {
@@ -75,7 +75,7 @@ export function Send() {
         <h2>Confirm withdrawal</h2>
         <p>
           Withdraw <strong>{stroopsToXlm(amountStroops)} XLM</strong> to the Stellar address{' '}
-          <span className="mono">{shortHex(to, 8)}</span>.
+          <CopyableHex value={to.trim()} chars={8} />.
         </p>
         <p className="muted">
           This leaves the rollup and settles on Stellar L1. It can't be undone.
@@ -89,7 +89,7 @@ export function Send() {
 
   return (
     <div className="panel">
-      <a className="back" onClick={() => navigate('/')}>← Home</a>
+      <a className="back" onClick={() => navigate('/')}>← Wallet</a>
       <h2>Send</h2>
       <label>Recipient</label>
       <input

@@ -3,8 +3,8 @@ import { useAccount, useHistory, usePending } from '../api/queries';
 import { useKey } from '../keys/KeyContext';
 import { hexToFr } from '../crypto/fields';
 import { leafValue, verifyPath } from '../crypto/merkle';
-import { shortHex, stroopsToXlm } from '../format';
-import { Badge, ErrorText, StatusBadge, Tooltip } from '../components/common';
+import { stroopsToXlm } from '../format';
+import { Badge, CopyableHex, ErrorText, StatusBadge, Tooltip } from '../components/common';
 import { Onboarding } from './Onboarding';
 
 const KIND_LABEL: Record<string, string> = {
@@ -83,7 +83,7 @@ export function Home() {
           <div className="list-row" key={`${e.status}-${e.id}`}>
             <div className="who">
               <span className="kind">{KIND_LABEL[e.kind] ?? e.kind}</span>
-              {e.counterparty && <span className="cp">{shortHex(e.counterparty, 5)}</span>}
+              {e.counterparty && <span className="cp"><CopyableHex value={e.counterparty} chars={5} /></span>}
             </div>
             <div className="row" style={{ gap: '0.6rem' }}>
               <span className={e.kind === 'transfer_in' || e.kind === 'deposit' ? 'amt-in' : 'amt-out'}>

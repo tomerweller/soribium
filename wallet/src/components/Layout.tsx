@@ -5,7 +5,7 @@ import { AccountMenu } from './AccountMenu';
 import { Banner } from './common';
 
 const tabs = [
-  ['/', 'Home'],
+  ['/', 'Wallet'],
   ['/activity', 'Activity'],
   ['/explorer', 'Explorer'],
 ];
