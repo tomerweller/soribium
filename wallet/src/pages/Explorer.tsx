@@ -29,32 +29,29 @@ export function Explorer() {
       </p>
       {status && (
         <>
-          <div className="row"><span className="muted">Batch</span><span>#{status.batch_num}</span></div>
-          <div className="row"><span className="muted">Pending txs / deposits</span><span>{status.pending_txs} / {status.pending_deposits}</span></div>
-          <div className="row"><span className="muted">Chain synced</span><Badge ok={status.chain_synced}>{String(status.chain_synced)}</Badge></div>
+          <div className="kv"><span className="k">Batch</span><span className="dots" /><span className="v">#{status.batch_num}</span></div>
+          <div className="kv"><span className="k">Pending tx / dep</span><span className="dots" /><span className="v">{status.pending_txs} / {status.pending_deposits}</span></div>
+          <div className="kv"><span className="k">Chain synced</span><span className="dots" /><span className="v"><Badge ok={status.chain_synced}>{String(status.chain_synced)}</Badge></span></div>
           {params && (
-            <div className="row">
-              <span className="muted">Contract</span>
-              <CopyableHex value={params.contract_id} chars={6} />
-            </div>
+            <div className="kv"><span className="k">Contract</span><span className="dots" /><span className="v"><CopyableHex value={params.contract_id} chars={6} /></span></div>
           )}
-          <div className="row" style={{ marginTop: '0.75rem' }}>
-            <span className="muted">Sequencer root</span><CopyableHex value={status.root} chars={8} />
-          </div>
-          <div className="row">
-            <span className="muted">On-chain root</span>
-            {chainRoot === undefined ? <span className="muted">…</span>
-              : chainRoot === null ? <span className="muted">unavailable</span>
-              : <CopyableHex value={chainRoot} chars={8} />}
+          <div className="kv"><span className="k">Sequencer root</span><span className="dots" /><span className="v"><CopyableHex value={status.root} chars={8} /></span></div>
+          <div className="kv">
+            <span className="k">On-chain root</span><span className="dots" />
+            <span className="v">
+              {chainRoot === undefined ? <span className="muted">…</span>
+                : chainRoot === null ? <span className="muted">unavailable</span>
+                : <CopyableHex value={chainRoot} chars={8} />}
+            </span>
           </div>
           {chainRoot != null && (
-            <div className="row">
-              <span className="muted">Roots match</span>
-              <Badge ok={chainRoot === status.root}>{String(chainRoot === status.root)}</Badge>
+            <div className={`verdict ${chainRoot === status.root ? 'verdict-ok' : 'verdict-bad'}`}>
+              <span className="verdict-glyph">{chainRoot === status.root ? '▣' : '▨'}</span>
+              {chainRoot === status.root ? 'ROOTS MATCH — STATE PROVEN ON-CHAIN' : 'ROOT MISMATCH'}
             </div>
           )}
           {params && (
-            <p style={{ marginTop: '0.75rem' }}>
+            <p style={{ marginTop: '0.9rem' }}>
               <a href={contractUrl(params.contract_id)} target="_blank" rel="noreferrer">
                 Contract on stellar.expert ↗
               </a>

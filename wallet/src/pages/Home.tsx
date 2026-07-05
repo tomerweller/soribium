@@ -4,7 +4,8 @@ import { useKey } from '../keys/KeyContext';
 import { hexToFr } from '../crypto/fields';
 import { leafValue, verifyPath } from '../crypto/merkle';
 import { stroopsToXlm } from '../format';
-import { Badge, CopyableHex, ErrorText, StatusBadge, Tooltip } from '../components/common';
+import { CopyableHex, ErrorText, StatusBadge } from '../components/common';
+import { VerifiedSeal } from '../components/VerifiedSeal';
 import { Onboarding } from './Onboarding';
 
 const KIND_LABEL: Record<string, string> = {
@@ -46,6 +47,7 @@ export function Home() {
   } else if (!account) {
     hero = (
       <div className="hero">
+        <div className="eyebrow">Balance</div>
         <div className="amount">0 <small>XLM</small></div>
         <p className="muted" style={{ marginTop: '0.75rem' }}>
           This account isn't on the rollup yet. Make a deposit to fund it.
@@ -57,12 +59,11 @@ export function Home() {
     const included = verifyPath(leaf, account.index, account.siblings.map(hexToFr), hexToFr(account.root));
     hero = (
       <div className="hero">
-        <div className="amount">{stroopsToXlm(BigInt(account.balance))} <small>XLM</small></div>
-        <div className="sub">
-          <Badge ok={included}>{included ? 'inclusion verified' : 'inclusion FAILED'}</Badge>
-          <Tooltip text="Your balance's Merkle path was checked in-browser against the rollup's committed state root — the sequencer can't fake it." />
-          {pending.total > 0 && <span className="pill">{pending.total} settling</span>}
+        <div className="eyebrow">
+          Balance{pending.total > 0 && <span className="pill" style={{ marginLeft: '0.6rem' }}>{pending.total} settling</span>}
         </div>
+        <div className="amount">{stroopsToXlm(BigInt(account.balance))} <small>XLM</small></div>
+        <VerifiedSeal verified={included} root={account.root} batch={account.batch_num} />
       </div>
     );
   }

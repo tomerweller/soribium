@@ -18,7 +18,7 @@ export function Layout() {
   return (
     <div className="app">
       <header>
-        <h1>Soribium</h1>
+        <span className="wordmark">Soribium<span className="cursor" /></span>
         {wallet && <AccountMenu />}
       </header>
       <nav>
