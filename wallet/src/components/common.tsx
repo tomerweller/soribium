@@ -13,7 +13,7 @@ export function StatusBadge({ status }: { status: string }) {
   return <span className={`badge ${cls}`}>{status}</span>;
 }
 
-export function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text, label = 'copy' }: { text: string; label?: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
@@ -24,17 +24,17 @@ export function CopyButton({ text }: { text: string }) {
         setTimeout(() => setCopied(false), 1200);
       }}
     >
-      {copied ? 'copied' : 'copy'}
+      {copied ? 'copied ✓' : label}
     </button>
   );
 }
 
-export function Qr({ text }: { text: string }) {
+export function Qr({ text, size = 200 }: { text: string; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
-    if (ref.current) QRCode.toCanvas(ref.current, text, { width: 200, margin: 1 });
-  }, [text]);
-  return <canvas ref={ref} />;
+    if (ref.current) QRCode.toCanvas(ref.current, text, { width: size, margin: 1 });
+  }, [text, size]);
+  return <canvas ref={ref} className="qr" />;
 }
 
 export function ErrorText({ error }: { error: unknown }) {
@@ -42,5 +42,60 @@ export function ErrorText({ error }: { error: unknown }) {
   // RECIPIENT_UNKNOWN isn't a user mistake — it's expected for a brand-new
   // payee — so present it as a neutral hint rather than a red error.
   const isHint = error instanceof ApiError && error.code === 'RECIPIENT_UNKNOWN';
-  return <p className={isHint ? 'muted' : 'error'}>{friendlyError(error)}</p>;
+  return <p className={isHint ? 'hint' : 'error'}>{friendlyError(error)}</p>;
+}
+
+/** Inline hover/focus tooltip via a title-styled superscript marker. */
+export function Tooltip({ text }: { text: string }) {
+  return (
+    <span className="tip" tabIndex={0} aria-label={text}>
+      ?<span className="tip-bubble">{text}</span>
+    </span>
+  );
+}
+
+/** Horizontal step indicator; `current` is the 0-based active index, or the
+ * step count when complete. */
+export function Stepper({ steps, current }: { steps: string[]; current: number }) {
+  return (
+    <ol className="stepper">
+      {steps.map((s, i) => (
+        <li key={s} className={i < current ? 'done' : i === current ? 'active' : ''}>
+          <span className="dot">{i < current ? '✓' : i + 1}</span>
+          <span className="step-label">{s}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export function Banner({ tone, children }: { tone: 'info' | 'warn'; children: ReactNode }) {
+  return <div className={`banner banner-${tone}`}>{children}</div>;
+}
+
+/** Lightweight dropdown anchored to a trigger; closes on outside click / Esc. */
+export function Dropdown({ trigger, children }: { trigger: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+  return (
+    <div className="dropdown" ref={ref}>
+      <button className="chip" onClick={() => setOpen((o) => !o)}>
+        {trigger} <span className="caret">▾</span>
+      </button>
+      {open && <div className="dropdown-menu" onClick={() => setOpen(false)}>{children}</div>}
+    </div>
+  );
 }

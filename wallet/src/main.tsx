@@ -4,13 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { KeyProvider } from './keys/KeyContext';
 import { Layout } from './components/Layout';
-import { Balance } from './pages/Balance';
+import { Home } from './pages/Home';
 import { Send } from './pages/Send';
 import { Receive } from './pages/Receive';
 import { Deposit } from './pages/Deposit';
-import { Withdraw } from './pages/Withdraw';
-import { History } from './pages/History';
-import { Status } from './pages/Status';
+import { Activity } from './pages/Activity';
+import { Explorer } from './pages/Explorer';
 import './styles.css';
 
 const queryClient = new QueryClient();
@@ -20,13 +19,14 @@ const router = createBrowserRouter([
     path: '/',
     element: <Layout />,
     children: [
-      { index: true, element: <Balance /> },
+      { index: true, element: <Home /> },
+      // Actions launched from Home (not in the main nav).
       { path: 'send', element: <Send /> },
-      { path: 'receive', element: <Receive /> },
       { path: 'deposit', element: <Deposit /> },
-      { path: 'withdraw', element: <Withdraw /> },
-      { path: 'history', element: <History /> },
-      { path: 'status', element: <Status /> },
+      { path: 'receive', element: <Receive /> },
+      // Primary destinations.
+      { path: 'activity', element: <Activity /> },
+      { path: 'explorer', element: <Explorer /> },
     ],
   },
 ]);

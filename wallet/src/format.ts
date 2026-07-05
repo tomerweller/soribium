@@ -1,5 +1,6 @@
 // Display/parse helpers. Internally every amount is a bigint of stroops
 // (7 decimals = 1 XLM); XLM strings appear ONLY at the UI boundary.
+import { StrKey } from '@stellar/stellar-sdk';
 import { P_BN254_FR, hexToFr } from './crypto/fields';
 
 export const STROOPS_PER_XLM = 10_000_000n;
@@ -54,6 +55,21 @@ export function isCanonicalPkX(s: string): boolean {
   } catch {
     return false;
   }
+}
+
+export type RecipientKind = 'l2' | 'stellar' | 'invalid' | 'empty';
+
+/**
+ * Classify a Send recipient so one field serves both transfers and
+ * withdrawals: a canonical 0x pk_x is an L2 account (rollup transfer); a valid
+ * Stellar strkey (G… account or C… contract) is a withdrawal that exits to L1.
+ */
+export function classifyRecipient(s: string): RecipientKind {
+  const t = s.trim();
+  if (t.length === 0) return 'empty';
+  if (isCanonicalPkX(t)) return 'l2';
+  if (StrKey.isValidEd25519PublicKey(t) || StrKey.isValidContract(t)) return 'stellar';
+  return 'invalid';
 }
 
 /** Big-endian 32-byte encoding of a pk_x hex, for the deposit `bytes` ScVal. */

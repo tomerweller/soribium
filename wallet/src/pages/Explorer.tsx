@@ -5,7 +5,7 @@ import { SEQUENCER_URL, contractUrl } from '../config';
 import { shortHex } from '../format';
 import { Badge } from '../components/common';
 
-export function Status() {
+export function Explorer() {
   const { data: params } = useParams();
   const { data: status } = useStatus();
   const { data: batchesData } = useBatches();
@@ -24,7 +24,10 @@ export function Status() {
 
   return (
     <div className="panel">
-      <h2>Rollup status</h2>
+      <h2>Rollup explorer</h2>
+      <p className="muted" style={{ marginTop: '-0.4rem' }}>
+        The validity proof: the sequencer's state root, checked against the contract on-chain.
+      </p>
       {status && (
         <>
           <div className="row"><span className="muted">Batch</span><span>#{status.batch_num}</span></div>
@@ -55,7 +58,7 @@ export function Status() {
         </>
       )}
 
-      <h3 style={{ marginTop: '1.5rem' }}>Batches</h3>
+      <h3>Batches</h3>
       <table>
         <thead><tr><th>#</th><th>New root</th><th>Status</th><th>DA blob</th></tr></thead>
         <tbody>

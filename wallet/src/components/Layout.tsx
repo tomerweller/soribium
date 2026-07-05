@@ -1,24 +1,25 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useKey } from '../keys/KeyContext';
-import { shortHex } from '../format';
+import { usePending, useStatus } from '../api/queries';
+import { AccountMenu } from './AccountMenu';
+import { Banner } from './common';
 
 const tabs = [
-  ['/', 'Balance'],
-  ['/send', 'Send'],
-  ['/receive', 'Receive'],
-  ['/deposit', 'Deposit'],
-  ['/withdraw', 'Withdraw'],
-  ['/history', 'History'],
-  ['/status', 'Status'],
+  ['/', 'Home'],
+  ['/activity', 'Activity'],
+  ['/explorer', 'Explorer'],
 ];
 
 export function Layout() {
   const { wallet } = useKey();
+  const { data: status, isError } = useStatus();
+  const pending = usePending(wallet?.pkX);
+
   return (
     <div className="app">
       <header>
         <h1>Soribium</h1>
-        {wallet && <span className="account">{shortHex(wallet.pkX, 8)}</span>}
+        {wallet && <AccountMenu />}
       </header>
       <nav>
         {tabs.map(([to, label]) => (
@@ -28,6 +29,16 @@ export function Layout() {
         ))}
       </nav>
       <main>
+        {isError && <Banner tone="warn">Can't reach the sequencer — showing last-known state.</Banner>}
+        {status && !status.chain_synced && (
+          <Banner tone="warn">Sequencer is out of sync with the chain; batching is paused.</Banner>
+        )}
+        {pending.total > 0 && (
+          <Banner tone="info">
+            {pending.total} transaction{pending.total > 1 ? 's' : ''} settling
+            {status?.inflight_batch ? ` — batch #${status.inflight_batch.batch_num} building…` : ' — next batch…'}
+          </Banner>
+        )}
         <Outlet />
       </main>
     </div>

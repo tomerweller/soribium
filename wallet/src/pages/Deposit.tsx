@@ -1,79 +1,92 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams } from '../api/queries';
 import { useKey } from '../keys/KeyContext';
 import { awaitTx, connectFreighter, deposit, friendbotUrl, isFunded } from '../api/stellar';
+import * as pendingDeposits from '../keys/pendingDeposits';
 import { xlmToStroops } from '../format';
-import { ErrorText } from '../components/common';
+import { ErrorText, Stepper } from '../components/common';
 import { Onboarding } from './Onboarding';
 
-type Step = 'idle' | 'connecting' | 'building' | 'signing' | 'awaiting' | 'done';
+const STEPS = ['Connect Freighter', 'Confirm in Freighter', 'Waiting for Stellar', 'Credited'];
 
 export function Deposit() {
   const { wallet } = useKey();
   const { data: params } = useParams();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [amount, setAmount] = useState('');
-  const [step, setStep] = useState<Step>('idle');
+  const [step, setStep] = useState<number>(-1); // -1 idle; 0..3 active; 4 done
   const [gAddr, setGAddr] = useState<string | null>(null);
   const [needsFunding, setNeedsFunding] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
   if (!wallet) return <Onboarding />;
 
+  const busy = step >= 0 && step < 4;
+
   async function run() {
     if (!params || !wallet) return;
     setError(null);
     setNeedsFunding(false);
     try {
-      setStep('connecting');
+      const stroops = xlmToStroops(amount);
+      setStep(0);
       const addr = await connectFreighter(params);
       setGAddr(addr);
       if (!(await isFunded(params, addr))) {
         setNeedsFunding(true);
-        setStep('idle');
+        setStep(-1);
         return;
       }
-      const stroops = xlmToStroops(amount);
-      setStep('building');
-      setStep('signing');
+      setStep(1);
       const hash = await deposit(params, addr, wallet.pkX, stroops);
-      setStep('awaiting');
-      const ok = await awaitTx(params, hash);
-      if (!ok) throw new Error('deposit transaction failed on-chain');
-      setStep('done');
+      setStep(2);
+      const okTx = await awaitTx(params, hash);
+      if (!okTx) throw new Error('deposit transaction failed on-chain');
+      // Track locally so the "settling" indicator shows until the L2 credit lands.
+      pendingDeposits.add({ pkX: wallet.pkX, amount: stroops.toString(), txHash: hash, at: Date.now() });
+      setStep(4);
       qc.invalidateQueries({ queryKey: ['account'] });
       qc.invalidateQueries({ queryKey: ['status'] });
     } catch (e) {
       setError(e);
-      setStep('idle');
+      setStep(-1);
     }
   }
 
   return (
     <div className="panel">
+      <a className="back" onClick={() => navigate('/')}>← Home</a>
       <h2>Deposit</h2>
       <p className="muted">
         Move XLM from your Stellar account (via Freighter) into the rollup. It credits your L2
-        account after the next batch settles.
+        account when the next batch settles — usually within seconds.
       </p>
       <label>Amount (XLM)</label>
-      <input placeholder="0.0" value={amount} onChange={(e) => setAmount(e.target.value)} />
-      <button onClick={run} disabled={step !== 'idle' || amount.length === 0}>
-        {step === 'idle' ? 'Deposit with Freighter' : step}
-      </button>
+      <input
+        placeholder="0.0"
+        value={amount}
+        onChange={(e) => setAmount(e.target.value)}
+        disabled={busy}
+      />
+      <div style={{ marginTop: '1rem' }}>
+        <button className="primary" onClick={run} disabled={busy || amount.length === 0}>
+          {busy ? 'Depositing…' : 'Deposit with Freighter'}
+        </button>
+      </div>
+
+      {step >= 0 && <Stepper steps={STEPS} current={step} />}
+
       {needsFunding && gAddr && (
         <p className="muted">
-          Your account {gAddr.slice(0, 8)}… isn't funded on testnet.{' '}
-          <a href={friendbotUrl(gAddr)} target="_blank" rel="noreferrer">
-            Fund it with friendbot
-          </a>
-          , then retry.
+          Your Stellar account {gAddr.slice(0, 8)}… isn't funded on testnet.{' '}
+          <a href={friendbotUrl(gAddr)} target="_blank" rel="noreferrer">Fund it with friendbot</a>, then retry.
         </p>
       )}
-      {step === 'awaiting' && <p className="muted">Submitted — waiting for L1 confirmation…</p>}
-      {step === 'done' && (
-        <p className="ok">Deposited. Your L2 balance updates when the next batch settles (~30s).</p>
+      {step === 4 && (
+        <p className="ok">Deposited. Your balance updates when the next batch settles.</p>
       )}
       <ErrorText error={error} />
     </div>
