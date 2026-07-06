@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
@@ -11,6 +11,9 @@ import { Deposit } from './pages/Deposit';
 import { Activity } from './pages/Activity';
 import { Explorer } from './pages/Explorer';
 import './styles.css';
+
+// The explainer (and xstate) load in their own chunk.
+const Learn = lazy(() => import('./learn/Learn'));
 
 const queryClient = new QueryClient();
 
@@ -28,6 +31,14 @@ const router = createBrowserRouter(
         // Primary destinations.
         { path: 'activity', element: <Activity /> },
         { path: 'explorer', element: <Explorer /> },
+        {
+          path: 'learn',
+          element: (
+            <Suspense fallback={<div className="panel muted">loading…</div>}>
+              <Learn />
+            </Suspense>
+          ),
+        },
       ],
     },
   ],

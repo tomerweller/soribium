@@ -8,6 +8,7 @@ const tabs = [
   ['/', 'Wallet'],
   ['/activity', 'Activity'],
   ['/explorer', 'Explorer'],
+  ['/learn', 'Learn'],
 ];
 
 export function Layout() {
