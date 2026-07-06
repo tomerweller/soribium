@@ -74,6 +74,31 @@ The tx blob is published off-chain (sequencer `GET /da/:batch_num`) and bound
 by `da_commitment`, the 5th public input — verifiers re-fold the blob and
 check it against the on-chain commitment.
 
+## Cloud deployment
+
+The public instance runs on:
+
+- **Wallet**: https://blob.tomerweller.com/soribium/ (GitHub Pages, deployed
+  by `.github/workflows/wallet.yml` — the crypto vector tests gate every
+  deploy)
+- **Sequencer**: https://soribium.fly.dev (Fly.io, deployed by
+  `.github/workflows/fly.yml` via remote amd64 builders — required, since bb
+  ships no arm64-linux binary)
+
+Ops notes:
+
+- **VM sizing is governed by the 5s-cadence requirement** (docs/PROVING.md
+  §3.5): bb prove(batch_n16) must stay ≤ ~3.5s so every Stellar ledger can
+  carry a batch. The app runs `performance-2x` (2 dedicated vCPUs, 4GB,
+  ~$60/mo); if the benchmark misses, `fly scale vm performance-4x` and
+  re-measure. Shared-CPU tiers are ruled out (burst throttling).
+- Fresh instance: `just bootstrap` (new contract + `.env`) then
+  `scripts/deploy_fly.sh` (sets the secret, patches `fly.toml`, remote
+  deploys). The SQLite state lives on the `soribium_data` volume; single
+  machine by design — never scale horizontally.
+- Secrets: only `SEQUENCER_SECRET`, via `fly secrets`; everything else in
+  `fly.toml [env]` is a public identifier.
+
 ## Testing
 
 ```sh

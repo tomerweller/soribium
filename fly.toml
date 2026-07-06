@@ -1,0 +1,48 @@
+# Soribium sequencer on Fly.io. Deploy with scripts/deploy_fly.sh (reads the
+# bootstrap-generated .env, sets the secret, patches [env], remote-builds).
+#
+# VM sizing is governed by the 5s-cadence requirement (docs/PROVING.md):
+# bb prove(batch_n16) must stay ≤ ~3.5s so every Stellar ledger can carry a
+# batch. performance-2x is the starting point; `fly scale vm performance-4x`
+# is the knob if the benchmark gate misses.
+app = "soribium"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  RPC_URL = "https://soroban-testnet.stellar.org"
+  NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
+  CONTRACT_ID = "CCKIBFDPPJELMQT5ZQ736BCFOSQOTXXJ3ZS2KYAQEOB6PWVVWDPU3TYF"
+  TOKEN_ID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+  SEQUENCER_ADDRESS = "GCUCAPHICHEZFTTCNQ56LE6E6S4JJ3FGNYARTP3MBJTXLN2VTONKYY7E"
+  # 5s-cadence batching: eager trigger reacts within one 2s tick; a lone
+  # payment waits at most 5s.
+  BATCH_MAX_WAIT_SECS = "5"
+  TICK_SECS = "2"
+  CIRCUIT_PKG = "batch_n16"
+  RUST_LOG = "sequencer=info"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # The batcher/deposit-watcher must run continuously — never autostop.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "get"
+    path = "/healthz"
+
+[[mounts]]
+  source = "soribium_data"
+  destination = "/data"
+
+[[vm]]
+  size = "performance-2x"
+  memory = "4gb"

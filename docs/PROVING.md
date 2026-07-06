@@ -105,11 +105,32 @@ Rules of thumb from the measurements:
   that's what the on-chain verifier accepts; inner proofs use poseidon2
   transcript. This exact combination is what we measured.
 
+## 3.5 Production requirement & cloud reference
+
+**Requirement: proving must sustain Stellar's ~5s ledger cadence.** The
+sequencer batches eagerly (any tick with >1 pending payment builds a batch),
+so the pipeline budget per batch is build + witness + prove + submit ≤ 5s —
+in practice **bb prove(CIRCUIT_PKG) ≤ ~3.5s** leaves adequate headroom.
+Deployment hardware must be provisioned to meet this, and the batch size is
+chosen as the largest N whose prove time fits the budget on that hardware.
+
+Cloud reference (Fly.io, `soribium` app; measured at deploy):
+
+| VM | bb prove n16 | pipeline build→submit | meets 5s? |
+|---|---|---|---|
+| performance-2x (2 vCPU, 4GB) | (measured at deploy — see below) | — | — |
+
+Scale knob: `fly scale vm performance-4x` (then re-measure and update this
+table). The ~$13/mo shared-cpu tier is ruled out by this requirement —
+shared vCPUs are burst-throttled and can't hold a steady 5s proving cadence.
+
 ## 4. Recommendations
 
-1. **Now (single machine):** run `batch_n128` with pipelined witness
-   generation for ~26 tx/s at 1-block settlement — or n256 at 2-block
-   cadence for the same throughput and half the fees. No recursion.
+1. **The 5s cadence is a hard requirement** (§3.5): pick the largest batch
+   size whose prove time fits ~3.5s on the deployment hardware. On the M4
+   Pro that's n128 (with pipelined witness gen); on the current cloud VM
+   it's n16 (n64+ needs bigger cores — the `fly scale vm` path). No
+   recursion at these sizes.
 2. **Scale-out trigger:** adopt recursion only when sustained demand exceeds
    ~25 tx/s AND a prover farm exists. Start with 4 workers × n256 + 1
    aggregator ≈ 128 tx/s at ~3-block latency.

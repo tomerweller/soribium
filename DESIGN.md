@@ -108,6 +108,17 @@ accumulators.
   `da_commitment` (see above).
 - Withdrawals executed inline, capped ≤ 8/batch.
 
+## Batching cadence
+
+The sequencer batches **eagerly**: on each tick (`TICK_SECS`), if more than
+one payment is pending it builds+proves+submits immediately; deposit-queue-
+full and the `BATCH_MAX_WAIT_SECS` timer remain as fallbacks so lone payments
+and deposit-only activity still settle. **Production requirement:** the
+pipeline must sustain Stellar's ~5s ledger cadence — prover hardware is
+provisioned such that bb prove(CIRCUIT_PKG) ≤ ~3.5s (see docs/PROVING.md
+§3.5), with `TICK_SECS=2` / `BATCH_MAX_WAIT_SECS=5` in deployment config so
+every ledger can carry a batch.
+
 ## Validium trust model
 
 Validity is trustless (every root advance is proven). Data availability is

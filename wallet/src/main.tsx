@@ -14,22 +14,26 @@ import './styles.css';
 
 const queryClient = new QueryClient();
 
-const router = createBrowserRouter([
-  {
-    path: '/',
-    element: <Layout />,
-    children: [
-      { index: true, element: <Home /> },
-      // Actions launched from Home (not in the main nav).
-      { path: 'send', element: <Send /> },
-      { path: 'deposit', element: <Deposit /> },
-      { path: 'receive', element: <Receive /> },
-      // Primary destinations.
-      { path: 'activity', element: <Activity /> },
-      { path: 'explorer', element: <Explorer /> },
-    ],
-  },
-]);
+const router = createBrowserRouter(
+  [
+    {
+      path: '/',
+      element: <Layout />,
+      children: [
+        { index: true, element: <Home /> },
+        // Actions launched from Home (not in the main nav).
+        { path: 'send', element: <Send /> },
+        { path: 'deposit', element: <Deposit /> },
+        { path: 'receive', element: <Receive /> },
+        // Primary destinations.
+        { path: 'activity', element: <Activity /> },
+        { path: 'explorer', element: <Explorer /> },
+      ],
+    },
+  ],
+  // Subpath hosting (e.g. GitHub Pages /soribium/).
+  { basename: import.meta.env.BASE_URL },
+);
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

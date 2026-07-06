@@ -1,0 +1,40 @@
+name: sequencer-fly
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'sequencer/**'
+      - 'harness/**'
+      - 'contracts/**'
+      - 'circuits/**'
+      - 'Dockerfile'
+      - 'fly.toml'
+      - 'Cargo.*'
+      - '.github/workflows/fly.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      # Fixture-based: real-proof verification runs without nargo/bb by design.
+      - run: cargo test -p rollup -p harness -p sequencer
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

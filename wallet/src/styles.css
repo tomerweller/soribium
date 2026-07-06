@@ -1,19 +1,21 @@
 /* Soribium — "cryptographic instrument": ink + electric lime duotone,
    monospace throughout, hairline rules, sharp corners. */
 
+/* Relative URLs (CSS lands in dist/assets/) so fonts resolve under any
+   hosting base path — Vite does not rebase absolute public-dir URLs. */
 @font-face {
   font-family: 'Space Mono';
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url('/fonts/space-mono-400.woff2') format('woff2');
+  src: url('../fonts/space-mono-400.woff2') format('woff2');
 }
 @font-face {
   font-family: 'Space Mono';
   font-style: normal;
   font-weight: 700;
   font-display: swap;
-  src: url('/fonts/space-mono-700.woff2') format('woff2');
+  src: url('../fonts/space-mono-700.woff2') format('woff2');
 }
 
 :root {
