@@ -21,7 +21,19 @@ export function AccountMenu() {
       </div>
       <a onClick={() => navigate('/receive')}>Show QR / receive</a>
       <div className="sep" />
-      {!revealed ? (
+      {wallet.linkedAddress ? (
+        <div style={{ padding: '0.4rem 0.6rem' }}>
+          <div className="muted" style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Linked to Stellar
+          </div>
+          <div className="mono" style={{ fontSize: '0.74rem', marginTop: '0.2rem' }}>
+            {shortHex(wallet.linkedAddress, 6)}
+          </div>
+          <p className="muted" style={{ fontSize: '0.7rem', margin: '0.4rem 0 0' }}>
+            Restore this account on any device by reconnecting this wallet — no key to back up.
+          </p>
+        </div>
+      ) : !revealed ? (
         <button onClick={() => setRevealed(true)}>Back up secret key</button>
       ) : (
         <div style={{ padding: '0.4rem 0.6rem' }}>

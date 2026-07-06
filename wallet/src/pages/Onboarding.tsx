@@ -3,40 +3,67 @@ import { useKey } from '../keys/KeyContext';
 import { ErrorText } from '../components/common';
 
 export function Onboarding() {
-  const { generate, importSk } = useKey();
+  const { deriveFromFreighter, importSk, generate } = useKey();
+  const [busy, setBusy] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
   const [sk, setSk] = useState('');
   const [error, setError] = useState<unknown>(null);
 
+  async function connect() {
+    setBusy(true);
+    setError(null);
+    try {
+      await deriveFromFreighter();
+    } catch (e) {
+      setError(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="panel">
-      <h2>Welcome to Soribium</h2>
+      <h2>New account</h2>
       <p className="muted">
-        Create a rollup account (an L2 key held in this browser) or import one.
+        Your rollup account is derived from your Stellar wallet. Sign one message in Freighter —
+        that signature deterministically produces your L2 key. Nothing moves, and you can restore
+        the account on any device by reconnecting the same wallet. No seed phrase to write down.
       </p>
-      <button onClick={() => generate()}>Generate new account</button>
-      <label>Or import a secret key</label>
-      <input
-        placeholder="0x…"
-        value={sk}
-        onChange={(e) => setSk(e.target.value.trim())}
-      />
-      <button
-        onClick={() => {
-          try {
-            setError(null);
-            importSk(sk);
-          } catch (e) {
-            setError(e);
-          }
-        }}
-        disabled={!sk}
-      >
-        Import
+      <button className="primary" onClick={connect} disabled={busy}>
+        {busy ? 'Waiting for Freighter…' : 'Connect Freighter & derive account'}
       </button>
       <ErrorText error={error} />
-      <p className="muted" style={{ fontSize: '0.8rem', marginTop: '1rem' }}>
-        Prototype custody: the key is stored in localStorage. Don't hold real value.
+
+      <p style={{ marginTop: '1.25rem' }}>
+        <a className="back" onClick={() => setAdvanced((a) => !a)}>
+          {advanced ? '− advanced' : '+ advanced'}
+        </a>
       </p>
+      {advanced && (
+        <div>
+          <label>Import a raw L2 secret key</label>
+          <input placeholder="0x…" value={sk} onChange={(e) => setSk(e.target.value.trim())} />
+          <button
+            className="secondary"
+            style={{ marginTop: '0.6rem' }}
+            onClick={() => {
+              try {
+                setError(null);
+                importSk(sk);
+              } catch (e) {
+                setError(e);
+              }
+            }}
+            disabled={!sk}
+          >
+            Import key
+          </button>
+          <p className="muted" style={{ fontSize: '0.7rem', marginTop: '0.8rem' }}>
+            Or generate a throwaway key not linked to any wallet (testing only — not recoverable):
+          </p>
+          <button className="secondary" onClick={() => generate()}>Generate throwaway key</button>
+        </div>
+      )}
     </div>
   );
 }

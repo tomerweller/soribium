@@ -14,7 +14,41 @@ import {
 import freighter from '@stellar/freighter-api';
 import { FRIENDBOT } from '../config';
 import { pkxToBytes32 } from '../format';
+import { KEY_DERIVATION_MESSAGE } from '../crypto/derive';
 import type { Params } from './sequencer';
+
+/** Normalize Freighter's signMessage result to raw signature bytes. v6
+ *  returns a Buffer (v3 extension) or a base64 string (v4). */
+function toSigBytes(m: Buffer | string | null): Uint8Array {
+  if (!m) throw new Error('No signature returned. The request may have been rejected.');
+  if (typeof m !== 'string') return new Uint8Array(m);
+  try {
+    return Uint8Array.from(atob(m), (c) => c.charCodeAt(0));
+  } catch {
+    const hex = m.startsWith('0x') ? m.slice(2) : m;
+    const bytes = hex.match(/.{2}/g);
+    if (!bytes) throw new Error('Unrecognized signature encoding');
+    return Uint8Array.from(bytes.map((h) => parseInt(h, 16)));
+  }
+}
+
+/**
+ * Connect Freighter and sign the fixed key-derivation message. Returns the
+ * Stellar address (the L1 owner we bind to) and the raw signature bytes the
+ * L2 key is derived from. No network passphrase is passed, so the signed
+ * content is exactly the message — the derivation is network-independent.
+ */
+export async function deriveKeyMaterial(): Promise<{ address: string; sig: Uint8Array }> {
+  const connected = await freighter.isConnected();
+  if (connected.error || !connected.isConnected) {
+    throw new Error('Freighter is not installed or unavailable');
+  }
+  const access = await freighter.requestAccess();
+  if (access.error) throw new Error(access.error);
+  const res = await freighter.signMessage(KEY_DERIVATION_MESSAGE, { address: access.address });
+  if (res.error) throw new Error(String(res.error));
+  return { address: access.address, sig: toSigBytes(res.signedMessage) };
+}
 
 function server(params: Params): rpc.Server {
   return new rpc.Server(params.rpc_url);

@@ -4,16 +4,20 @@ import { frToHex32, hexToFr, randScalar } from '../crypto/fields';
 import { pkFromSk } from '../crypto/grumpkin';
 
 const STORAGE_KEY = 'soribium.v1.sk';
+const LINK_KEY = 'soribium.v1.linkedAddress';
 
 export interface Wallet {
   sk: bigint;
   pkX: string; // 0x hex
   pkY: string; // 0x hex
+  /** Stellar address this key was derived from (if via Freighter). */
+  linkedAddress?: string;
 }
 
 function fromSk(sk: bigint): Wallet {
   const pk = pkFromSk(sk);
-  return { sk, pkX: frToHex32(pk.x), pkY: frToHex32(pk.y) };
+  const linked = localStorage.getItem(LINK_KEY) ?? undefined;
+  return { sk, pkX: frToHex32(pk.x), pkY: frToHex32(pk.y), linkedAddress: linked };
 }
 
 export function load(): Wallet | null {
@@ -26,18 +30,26 @@ export function load(): Wallet | null {
   }
 }
 
+/** Persist a Freighter-derived key plus the Stellar address it's bound to. */
+export function saveDerived(sk: bigint, linkedAddress: string): Wallet {
+  localStorage.setItem(STORAGE_KEY, frToHex32(sk));
+  localStorage.setItem(LINK_KEY, linkedAddress);
+  return fromSk(sk);
+}
+
 export function generate(): Wallet {
   const sk = randScalar();
   localStorage.setItem(STORAGE_KEY, frToHex32(sk));
+  localStorage.removeItem(LINK_KEY); // random/imported keys aren't wallet-bound
   return fromSk(sk);
 }
 
 export function importSk(hex: string): Wallet {
   const sk = hexToFr(hex);
   if (sk === 0n) throw new Error('secret key must be nonzero');
-  const w = fromSk(sk);
   localStorage.setItem(STORAGE_KEY, frToHex32(sk));
-  return w;
+  localStorage.removeItem(LINK_KEY);
+  return fromSk(sk);
 }
 
 /** The raw secret hex, for export (guard behind a confirm in the UI). */
@@ -47,4 +59,5 @@ export function exportSk(): string | null {
 
 export function clear(): void {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LINK_KEY);
 }
