@@ -114,22 +114,31 @@ in practice **bb prove(CIRCUIT_PKG) ≤ ~3.5s** leaves adequate headroom.
 Deployment hardware must be provisioned to meet this, and the batch size is
 chosen as the largest N whose prove time fits the budget on that hardware.
 
-Cloud reference (Fly.io, `soribium` app; measured at deploy):
+Cloud reference (Fly.io, `soribium` app; measured 2026-07-06, 3 runs each):
 
-| VM | bb prove n16 | pipeline build→submit | meets 5s? |
+| VM | circuit | bb prove | meets ≤3.5s budget? |
 |---|---|---|---|
-| performance-2x (2 vCPU, 4GB) | (measured at deploy — see below) | — | — |
+| shared-cpu-2x, 4GB | batch_n16 (2^18) | 6.2–8.1 s | **no** |
+| shared-cpu-2x, 4GB | batch_n4 (2^16) | 1.2–1.4 s | **yes** — deployed config |
 
-Scale knob: `fly scale vm performance-4x` (then re-measure and update this
-table). The ~$13/mo shared-cpu tier is ruled out by this requirement —
-shared vCPUs are burst-throttled and can't hold a steady 5s proving cadence.
+Live pipeline (from production logs, real batches): **build → proof recorded
+= 3.0–3.6 s** ✓; proof → on-chain confirmation adds ~8 s (submit + testnet
+ledger close + 2s confirm polling), which is chain latency, not prover work.
+
+The org is currently billing-limited to 2 shared cores per machine
+(performance tiers and >2 cores need a Fly billing unlock). Under that
+limit, **batch_n4 is the largest size meeting the budget**, so the cloud
+instance runs n4 (4 payments/batch ≈ 0.8 tx/s sustained at 5s cadence).
+Scale path once unlocked: `fly scale vm performance-4x`, re-measure n16
+(expected ~2–3s from the core-count ratio), re-bootstrap with the n16 VK
+(the VK is contract-immutable), and update this table.
 
 ## 4. Recommendations
 
 1. **The 5s cadence is a hard requirement** (§3.5): pick the largest batch
    size whose prove time fits ~3.5s on the deployment hardware. On the M4
    Pro that's n128 (with pipelined witness gen); on the current cloud VM
-   it's n16 (n64+ needs bigger cores — the `fly scale vm` path). No
+   (2 shared cores) it's **n4**, with n16 unlocking at performance-4x. No
    recursion at these sizes.
 2. **Scale-out trigger:** adopt recursion only when sustained demand exceeds
    ~25 tx/s AND a prover farm exists. Start with 4 workers × n256 + 1

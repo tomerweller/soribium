@@ -88,10 +88,11 @@ The public instance runs on:
 Ops notes:
 
 - **VM sizing is governed by the 5s-cadence requirement** (docs/PROVING.md
-  §3.5): bb prove(batch_n16) must stay ≤ ~3.5s so every Stellar ledger can
-  carry a batch. The app runs `performance-2x` (2 dedicated vCPUs, 4GB,
-  ~$60/mo); if the benchmark misses, `fly scale vm performance-4x` and
-  re-measure. Shared-CPU tiers are ruled out (burst throttling).
+  §3.5): bb prove must stay ≤ ~3.5s so every Stellar ledger can carry a
+  batch. The org is currently billing-limited to 2 shared cores, where
+  measured proving is n16 = 6.2–8.1s (fails) and n4 = 1.2–1.4s (passes) —
+  so the cloud instance runs **batch_n4**. Once the Fly billing unlock
+  allows `performance-4x`, re-bootstrap with the n16 VK and scale up.
 - Fresh instance: `just bootstrap` (new contract + `.env`) then
   `scripts/deploy_fly.sh` (sets the secret, patches `fly.toml`, remote
   deploys). The SQLite state lives on the `soribium_data` volume; single

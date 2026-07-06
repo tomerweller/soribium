@@ -12,7 +12,10 @@ cd "$(dirname "$0")/.."
 
 NET=testnet
 IDENTITY=soribium-seq
-CIRCUIT=batch_n16
+# The circuit determines the contract's immutable VK — pick the largest batch
+# whose prove time fits the 5s-cadence budget on the PROVER hardware
+# (docs/PROVING.md §3.5).
+CIRCUIT="${CIRCUIT:-batch_n16}"
 
 echo "==> sequencer identity"
 stellar keys generate "$IDENTITY" --network "$NET" --fund 2>/dev/null || stellar keys fund "$IDENTITY" --network "$NET" 2>/dev/null || true

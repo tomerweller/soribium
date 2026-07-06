@@ -33,8 +33,14 @@ RUN curl -fsSL "https://raw.githubusercontent.com/AztecProtocol/aztec-packages/0
 RUN curl -fsSL "https://github.com/stellar/stellar-cli/releases/download/v${STELLAR_VERSION}/stellar-cli-${STELLAR_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
     | tar -xz -C /usr/local/bin stellar
 
-FROM --platform=linux/amd64 debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3 curl \
+# trixie (glibc 2.41): the bb amd64 binary requires GLIBC >= 2.38 /
+# GLIBCXX >= 3.4.31, newer than bookworm's 2.36.
+FROM --platform=linux/amd64 debian:trixie-slim AS runtime
+# git: nargo clones the noir-lang/poseidon dependency when compiling circuits.
+# libdbus-1-3: the stellar CLI links it (keyring integration).
+# jq: bb's CRS (SRS) download helper shells out to it on first prove.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git libdbus-1-3 jq \
+    && (apt-get install -y --no-install-recommends libssl3t64 || apt-get install -y --no-install-recommends libssl3) \
     && rm -rf /var/lib/apt/lists/*
 # Toolchain at the paths prove.sh / prover.rs expect ($HOME/.nargo/bin, $HOME/.bb).
 COPY --from=tools /root/.nargo /root/.nargo
@@ -46,7 +52,17 @@ COPY --from=builder /app/target/release/wallet-sim /usr/local/bin/wallet-sim
 # Ship the Noir workspace and pre-compile the circuit so runtime only runs
 # execute + prove.
 COPY circuits /app/circuits
-RUN cd /app/circuits && nargo compile --package batch_n16
+# Bake both deployable batch sizes (CIRCUIT_PKG selects at runtime); the
+# poseidon git dependency gets cloned here so runtime needs no network.
+RUN cd /app/circuits && nargo compile --package batch_n16 && nargo compile --package batch_n4
+# Warm bb's CRS cache (downloaded on first prove) and validate the full
+# witness->prove chain at build time, so runtime proving never needs network.
+RUN cd /app/circuits && nargo execute --package batch_n16 crs_warm \
+    && mkdir -p /tmp/crs-warm \
+    && bb prove --scheme ultra_honk --oracle_hash keccak \
+         --bytecode_path target/batch_n16.json --witness_path target/crs_warm.gz \
+         --output_path /tmp/crs-warm \
+    && test -s /tmp/crs-warm/proof && rm -rf /tmp/crs-warm target/crs_warm.gz
 ENV CIRCUITS_DIR=/app/circuits
 ENV DB_PATH=/data/sequencer.db
 ENV LISTEN_ADDR=0.0.0.0:8080
