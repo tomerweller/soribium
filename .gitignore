@@ -2,3 +2,10 @@
 circuits/target
 test_snapshots/
 .DS_Store
+
+# generated witnesses (regenerate: cargo run -p harness -- demo-batch[-nN])
+circuits/*/Prover.toml
+
+# runtime state + secrets (bootstrap writes .env)
+.env
+sequencer.db*
