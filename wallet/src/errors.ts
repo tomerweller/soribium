@@ -26,10 +26,38 @@ export function friendlyError(error: unknown): string {
         return 'Signature check failed. Try again, or re-import your key.';
       case 'BAD_FIELD':
         return `Invalid input: ${error.message.replace(/^BAD_FIELD:\s*/, '')}`;
+      case 'SEQUENCER_UNREACHABLE':
+        return "Can't reach the sequencer. Check your connection and try again in a moment.";
+      case 'BAD_RESPONSE':
+        return 'The sequencer returned an unexpected response. Try again in a moment.';
       default:
         return error.message;
     }
   }
-  if (error instanceof Error) return error.message;
-  return String(error);
+  return describeThrown(error);
+}
+
+/** Best-effort human text for an arbitrary thrown value. Guarantees we never
+ *  render "[object Object]" (e.g. Freighter and DOM errors are objects). */
+function describeThrown(error: unknown): string {
+  if (typeof error === 'string' && error) return error;
+  if (error instanceof Error) {
+    // fetch() failures are TypeErrors with browser-speak like "Failed to fetch".
+    if (error instanceof TypeError && /fetch|network/i.test(error.message)) {
+      return 'Network error — check your connection and try again.';
+    }
+    return error.message || error.name;
+  }
+  if (error && typeof error === 'object') {
+    const m = (error as { message?: unknown }).message;
+    if (typeof m === 'string' && m) return m;
+    try {
+      const json = JSON.stringify(error);
+      if (json && json !== '{}') return json.length > 200 ? `${json.slice(0, 200)}…` : json;
+    } catch {
+      /* circular — fall through */
+    }
+    return 'Something went wrong (unrecognized error).';
+  }
+  return String(error) || 'Something went wrong (empty error).';
 }

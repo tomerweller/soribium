@@ -43,8 +43,17 @@ export function Deposit() {
       setStep(1);
       const hash = await deposit(params, addr, wallet.pkX, stroops);
       setStep(2);
-      const okTx = await awaitTx(params, hash);
-      if (!okTx) throw new Error('deposit transaction failed on-chain');
+      const outcome = await awaitTx(params, hash);
+      if (outcome === 'failed') {
+        throw new Error(
+          `The deposit transaction failed on Stellar (tx ${hash.slice(0, 8)}…). No funds were credited — try again.`,
+        );
+      }
+      if (outcome === 'timeout') {
+        throw new Error(
+          "Stellar hasn't confirmed the deposit yet. Give it a minute — if your balance doesn't update, retry.",
+        );
+      }
       // Track locally so the "settling" indicator shows until the L2 credit lands.
       pendingDeposits.add({ pkX: wallet.pkX, amount: stroops.toString(), txHash: hash, at: Date.now() });
       setStep(4);

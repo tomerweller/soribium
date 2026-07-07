@@ -69,9 +69,27 @@ export class ApiError extends Error {
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${SEQUENCER_URL}${path}`, init);
+  let res: Response;
+  try {
+    res = await fetch(`${SEQUENCER_URL}${path}`, init);
+  } catch {
+    // fetch rejects with an unhelpful TypeError when the host is unreachable.
+    throw new ApiError('SEQUENCER_UNREACHABLE', `could not reach the sequencer at ${SEQUENCER_URL}`, 0);
+  }
   const text = await res.text();
-  const body = text ? JSON.parse(text) : null;
+  let body: { error?: { code?: string; message?: string } } | null = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      // A proxy/gateway error page, not the sequencer's JSON.
+      throw new ApiError(
+        res.ok ? 'BAD_RESPONSE' : 'HTTP_ERROR',
+        `unexpected non-JSON response from ${path} (HTTP ${res.status})`,
+        res.status,
+      );
+    }
+  }
   if (!res.ok) {
     const err = body?.error;
     throw new ApiError(err?.code ?? 'HTTP_ERROR', err?.message ?? res.statusText, res.status);

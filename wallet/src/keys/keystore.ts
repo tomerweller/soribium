@@ -45,8 +45,13 @@ export function generate(): Wallet {
 }
 
 export function importSk(hex: string): Wallet {
-  const sk = hexToFr(hex);
-  if (sk === 0n) throw new Error('secret key must be nonzero');
+  let sk: bigint;
+  try {
+    sk = hexToFr(hex);
+  } catch {
+    throw new Error('Not a valid secret key — expected 0x followed by exactly 64 hex characters.');
+  }
+  if (sk === 0n) throw new Error('Secret key must be nonzero.');
   localStorage.setItem(STORAGE_KEY, frToHex32(sk));
   localStorage.removeItem(LINK_KEY);
   return fromSk(sk);

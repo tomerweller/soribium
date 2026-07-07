@@ -17,6 +17,21 @@ import { pkxToBytes32 } from '../format';
 import { KEY_DERIVATION_MESSAGE } from '../crypto/derive';
 import type { Params } from './sequencer';
 
+/** Freighter v4+ reports errors as `{ code, message }` objects (older builds
+ *  used plain strings). Passing the object to `new Error()` or `String()`
+ *  renders "[object Object]" — always extract the message through this. */
+function freighterMsg(e: unknown): string {
+  if (typeof e === 'string') return e;
+  if (e && typeof e === 'object') {
+    const m = (e as { message?: unknown }).message;
+    if (typeof m === 'string' && m) return m;
+  }
+  return 'Freighter returned an unexpected error. Unlock the extension and try again.';
+}
+
+const NOT_INSTALLED =
+  'Freighter not detected. Install the extension from freighter.app (or unlock it), then reload this page.';
+
 /** Normalize Freighter's signMessage result to raw signature bytes. v6
  *  returns a Buffer (v3 extension) or a base64 string (v4). */
 function toSigBytes(m: Buffer | string | null): Uint8Array {
@@ -41,12 +56,12 @@ function toSigBytes(m: Buffer | string | null): Uint8Array {
 export async function deriveKeyMaterial(): Promise<{ address: string; sig: Uint8Array }> {
   const connected = await freighter.isConnected();
   if (connected.error || !connected.isConnected) {
-    throw new Error('Freighter is not installed or unavailable');
+    throw new Error(NOT_INSTALLED);
   }
   const access = await freighter.requestAccess();
-  if (access.error) throw new Error(access.error);
+  if (access.error) throw new Error(freighterMsg(access.error));
   const res = await freighter.signMessage(KEY_DERIVATION_MESSAGE, { address: access.address });
-  if (res.error) throw new Error(String(res.error));
+  if (res.error) throw new Error(freighterMsg(res.error));
   return { address: access.address, sig: toSigBytes(res.signedMessage) };
 }
 
@@ -58,12 +73,12 @@ function server(params: Params): rpc.Server {
 export async function connectFreighter(params: Params): Promise<string> {
   const connected = await freighter.isConnected();
   if (connected.error || !connected.isConnected) {
-    throw new Error('Freighter is not installed or unavailable');
+    throw new Error(NOT_INSTALLED);
   }
   const access = await freighter.requestAccess();
-  if (access.error) throw new Error(access.error);
+  if (access.error) throw new Error(freighterMsg(access.error));
   const net = await freighter.getNetwork();
-  if (net.error) throw new Error(net.error);
+  if (net.error) throw new Error(freighterMsg(net.error));
   if (net.networkPassphrase !== params.network_passphrase) {
     throw new Error(
       `Freighter is on the wrong network (${net.network}); switch it to the one matching ${params.network_passphrase}`,
@@ -118,25 +133,38 @@ export async function deposit(
     networkPassphrase: params.network_passphrase,
     address: from,
   });
-  if (signed.error) throw new Error(signed.error);
+  if (signed.error) throw new Error(freighterMsg(signed.error));
   const tx = TransactionBuilder.fromXDR(signed.signedTxXdr, params.network_passphrase);
   const sent = await srv.sendTransaction(tx);
   if (sent.status === 'ERROR') {
-    throw new Error(`deposit submission failed: ${JSON.stringify(sent.errorResult)}`);
+    // errorResult is an XDR union; JSON.stringify prints internals. Pull the
+    // result-code name if we can, otherwise stay generic.
+    let detail = '';
+    try {
+      detail = sent.errorResult?.result().switch().name ?? '';
+    } catch {
+      /* opaque result — the generic message stands */
+    }
+    throw new Error(
+      `Stellar rejected the deposit transaction${detail ? ` (${detail})` : ''}. No funds moved — try again.`,
+    );
   }
   return sent.hash;
 }
 
-/** Poll a submitted tx to a terminal state. */
-export async function awaitTx(params: Params, hash: string): Promise<boolean> {
+/** Poll a submitted tx to a terminal state (or give up after ~60s). */
+export async function awaitTx(
+  params: Params,
+  hash: string,
+): Promise<'success' | 'failed' | 'timeout'> {
   const srv = server(params);
   for (let i = 0; i < 30; i++) {
     const r = await srv.getTransaction(hash);
-    if (r.status === rpc.Api.GetTransactionStatus.SUCCESS) return true;
-    if (r.status === rpc.Api.GetTransactionStatus.FAILED) return false;
+    if (r.status === rpc.Api.GetTransactionStatus.SUCCESS) return 'success';
+    if (r.status === rpc.Api.GetTransactionStatus.FAILED) return 'failed';
     await new Promise((res) => setTimeout(res, 2000));
   }
-  return false;
+  return 'timeout';
 }
 
 /**
