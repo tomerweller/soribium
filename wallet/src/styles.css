@@ -239,8 +239,17 @@ th { color: var(--muted); font-weight: 700; text-transform: uppercase; letter-sp
 .back:hover { color: var(--lime); }
 
 /* ---- Learn explainer ---- */
+/* Wide canvas for the /learn route only; prose stays at a readable measure. */
+.app-wide { max-width: 920px; }
+.learn-hero-title { font-size: clamp(1.6rem, 4.2vw, 2.7rem); line-height: 1.2; max-width: 24ch; }
+.learn .hero p { max-width: 68ch; }
 .learn-section { border: 1px solid var(--line); background: var(--ink-2); padding: 1.25rem; margin-bottom: 1.1rem; }
-.learn-section > p { font-size: 0.88rem; line-height: 1.65; }
+.learn-section > p { font-size: 0.88rem; line-height: 1.65; max-width: 68ch; }
+@media (min-width: 720px) {
+  .learn-section { padding: 2rem 2.4rem 1.8rem; margin-bottom: 1.5rem; }
+  .learn-section > p { font-size: 0.94rem; }
+  .learn .hero { padding: 2.2rem 2.4rem; }
+}
 .learn-section em { color: var(--lime); font-style: normal; }
 .learn-n { color: var(--lime); margin-right: 0.4rem; }
 .learn-widget { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; }

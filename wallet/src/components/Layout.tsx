@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useKey } from '../keys/KeyContext';
 import { usePending, useStatus } from '../api/queries';
 import { AccountMenu } from './AccountMenu';
@@ -15,9 +15,12 @@ export function Layout() {
   const { wallet } = useKey();
   const { data: status, isError } = useStatus();
   const pending = usePending(wallet?.pkX);
+  // The explainer is long-form reading — give it a desktop-width canvas;
+  // the wallet itself stays a narrow instrument.
+  const wide = useLocation().pathname.startsWith('/learn');
 
   return (
-    <div className="app">
+    <div className={wide ? 'app app-wide' : 'app'}>
       <header>
         <span className="wordmark">Soribium<span className="cursor" /></span>
         {wallet && <AccountMenu />}

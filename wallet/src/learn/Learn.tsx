@@ -28,7 +28,7 @@ export default function Learn() {
     <div className="learn">
       <div className="panel hero">
         <div className="eyebrow">How Soribium works</div>
-        <div className="amount" style={{ fontSize: '1.9rem', lineHeight: 1.25 }}>
+        <div className="amount learn-hero-title">
           A payments rollup where your browser checks the math.
         </div>
         <p className="muted" style={{ marginTop: '0.8rem' }}>
