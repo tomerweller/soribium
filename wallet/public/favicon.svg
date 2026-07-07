@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Soribium mark: a Merkle inclusion path — your leaf, proven up to the root. -->
+  <rect width="64" height="64" fill="#0b0c0e"/>
+  <line x1="32" y1="26" x2="17" y2="38" stroke="#ccff00" stroke-width="4"/>
+  <line x1="32" y1="26" x2="47" y2="38" stroke="#4a4f45" stroke-width="4"/>
+  <rect x="22" y="8" width="20" height="18" fill="none" stroke="#ccff00" stroke-width="4"/>
+  <rect x="8" y="38" width="18" height="18" fill="#ccff00"/>
+  <rect x="38" y="38" width="18" height="18" fill="none" stroke="#4a4f45" stroke-width="4"/>
+</svg>
