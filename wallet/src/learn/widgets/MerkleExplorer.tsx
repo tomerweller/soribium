@@ -48,7 +48,8 @@ export function MerkleExplorer() {
 
   return (
     <div className="learn-widget">
-      <svg viewBox={`0 0 ${W} ${LEVEL_H * DEMO_DEPTH + 44}`} className="learn-svg">
+      {/* +64 below the leaves: name labels have their baseline at y(0)+24. */}
+      <svg viewBox={`0 0 ${W} ${LEVEL_H * DEMO_DEPTH + 64}`} className="learn-svg">
         {levels.map((level, d) =>
           level.map((h, i) => {
             const onPath = pathIdx.has(`${d}:${i}`);
