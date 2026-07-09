@@ -46,10 +46,13 @@ Domain separators (Fr constants):
 - Leaf = `Poseidon2([DOMAIN_LEAF, pk_x, balance, nonce])`.
 - Node = `Poseidon2([left, right])`.
 - Empty: `zero[0] = 0`, `zero[i+1] = Poseidon2([zero[i], zero[i]])`; empty leaf = 0.
-- Account key: Grumpkin public-key x-coordinate (`pk_x`). **Spike caveat**: the
-  y-parity is not bound, so a pk_x has two valid pubkeys; production must bind
-  the sign bit.
-- Balance range `[0, 2^64)` enforced in-circuit; `i128` on-chain.
+- Account key: Grumpkin public-key x-coordinate (`pk_x`). Active spends require
+  **even-y** public keys (`pk_y` LSB clear): keygen flips `sk → -sk` when the
+  raw point has odd y (harness `Keypair::from_sk`, wallet `canonicalizeSk`).
+  This binds y-parity for spend authorization without enlarging the leaf.
+- Balance range `[0, 2^64)` enforced in-circuit; `i128` on-chain. The contract
+  tracks **lifetime deposit credit** per `pk_x` and rejects deposits that would
+  push the sum past `u64::MAX` (prevents an unprovable FIFO queue head).
 
 ## L2 transaction
 
@@ -57,13 +60,17 @@ Signing message: `msg = Poseidon2([DOMAIN_TX, from_pk_x, to_field, amount, nonce
 where `to_field` = recipient `pk_x` (transfer) or `address_to_field(dest)` (withdrawal).
 
 Schnorr over Grumpkin (hand-rolled; std::schnorr no longer exists):
-- keys: `pk = sk·G` (G = Grumpkin generator via `fixed_base_scalar_mul`)
+- keys: `pk = sk·G` (G = Grumpkin generator via `fixed_base_scalar_mul`), even-y
 - sign: nonce `k`, `R = k·G`, `e = Poseidon2([DOMAIN_SIG, R.x, pk_x, msg])`,
   `s = k + e·sk (mod Fq_grumpkin)`
-- verify (circuit): `multi_scalar_mul([G, pk], [s, -e]) == R` — exact
-  formulation settled in M3; `e` lifted via `EmbeddedCurveScalar::from_field`
-  (safe: BN254 Fr < Grumpkin scalar modulus), `s` passed as `{s_lo, s_hi}`
-  128-bit limbs.
+- verify (circuit): `s·G == R + e·pk`, with defenses:
+  - `s_lo`, `s_hi` range-checked to 128 bits; `s ≠ 0`
+  - `pk` and `R` on-curve (`y^2 = x^3 - 17`) and non-infinity
+  - `e` lifted via `EmbeddedCurveScalar::from_field` (safe: BN254 Fr < Grumpkin
+    scalar modulus)
+- **Padding keypair** (`sk=7`, published `PAD_PK_*`): used only for inactive
+  batch slots. Active deposits/transfers **blacklist** `PAD_PK_X` (secret is
+  public — crediting it would make funds drainable by anyone).
 
 ## Batch circuit public interface
 
@@ -97,7 +104,7 @@ Exactly 5 public inputs (160-byte PI blob):
 limbs with `DOMAIN_ADDR` (ported from OZ confidential storage.rs).
 
 Padding: `is_active = 0` entries freeze both the running root and the fold
-accumulators.
+accumulators. Active entries require `amount > 0`.
 
 ## Envelope (submit_batch argument)
 
@@ -129,8 +136,11 @@ cannot be stolen). Production hardening path: DAC signatures over
 
 ## Known spike caveats (production deltas)
 
-Tracked for REPORT.md: forced exits / censorship resistance; txs_blob
-commitment; pk_x y-parity; VK rotation/upgrade path; sequencer
-decentralization; SAC clawback/auth-flag vetting for the custody asset;
-cross-instance proof replay (no `addr_f` binding — old_root match makes replay
-a non-issue within an instance).
+Tracked for REPORT.md: forced exits / censorship resistance; DA committee
+over `da_commitment`; circuit-level `pk_x` uniqueness (honest builder +
+harness enforce find-first; a malicious prover could still open a second slot
+with the same `pk_x` without a sparse/nullifier tree); VK rotation/upgrade
+path; sequencer decentralization; SAC clawback/auth-flag vetting for the
+custody asset; cross-instance proof replay (no `addr_f` binding — old_root
+match makes replay a non-issue within an instance); lifetime deposit credit
+is conservative (does not decrease on withdraw).

@@ -6,6 +6,7 @@
 // backup (reconnect the wallet, re-sign, re-derive) and is provably bound to
 // the signing Stellar address.
 import { N_GRUMPKIN } from './fields';
+import { canonicalizeSk } from './grumpkin';
 
 /** The message the wallet signs. Human-readable (Freighter shows it) and
  *  versioned so we can rotate the derivation without ambiguity. */
@@ -28,5 +29,6 @@ export async function deriveSkFromSignature(sig: Uint8Array): Promise<bigint> {
   let v = 0n;
   for (const b of digest) v = (v << 8n) | BigInt(b);
   const sk = v % N_GRUMPKIN;
-  return sk === 0n ? 1n : sk; // degenerate guard (never happens in practice)
+  // Even-y canonical form required by the batch circuit for active spends.
+  return canonicalizeSk(sk === 0n ? 1n : sk);
 }

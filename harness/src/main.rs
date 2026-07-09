@@ -67,8 +67,8 @@ fn sig_vectors() {
     println!("gen_x   = {}", to_hex(&coord_to_fr(&gen.x)));
     println!("gen_y   = {}", to_hex(&coord_to_fr(&gen.y)));
 
-    // Deterministic vector: sk = 7, k = 13, msg = 42.
-    let keypair = Keypair::from_sk(ark_grumpkin::Fr::from(7u64));
+    // Deterministic vector: sk = 7, k = 13, msg = 42 (raw; padding constants).
+    let keypair = Keypair::from_sk_raw(ark_grumpkin::Fr::from(7u64));
     println!("pk_x    = {}", to_hex(&keypair.pk_x()));
     println!("pk_y    = {}", to_hex(&keypair.pk_y()));
 

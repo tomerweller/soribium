@@ -3,6 +3,7 @@
 // ark-grumpkin's Affine::generator().
 import { weierstrass } from '@noble/curves/abstract/weierstrass.js';
 import { N_GRUMPKIN, P_BN254_FR } from './fields';
+// N_GRUMPKIN used by canonicalizeSk
 
 export const Grumpkin = weierstrass({
   p: P_BN254_FR,
@@ -23,6 +24,20 @@ export function mulBase(k: bigint): AffinePoint {
 
 export function pkFromSk(sk: bigint): AffinePoint {
   return mulBase(sk);
+}
+
+/**
+ * Even-y canonical secret key (matches harness Keypair::from_sk and the
+ * circuit's is_even_y check on active spends). If sk*G has odd y, return -sk.
+ */
+export function canonicalizeSk(sk: bigint): bigint {
+  let s = ((sk % N_GRUMPKIN) + N_GRUMPKIN) % N_GRUMPKIN;
+  if (s === 0n) s = 1n;
+  const pk = mulBase(s);
+  if ((pk.y & 1n) === 1n) {
+    s = (N_GRUMPKIN - s) % N_GRUMPKIN;
+  }
+  return s === 0n ? 1n : s;
 }
 
 /** Validates the point is on the curve; throws otherwise. */

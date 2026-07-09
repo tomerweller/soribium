@@ -25,6 +25,9 @@ pub enum BuildError {
     RecipientNotFound { tx_index: usize },
     BadSignature { tx_index: usize },
     ZeroDepositPk,
+    ZeroAmount,
+    /// Deposit/spend targets the public padding keypair (sk=7) — forbidden.
+    ReservedPaddingPk,
     DepositPkMismatch { deposit_index: usize },
     BalanceOverflow { deposit_index: usize },
     TreeFull,
@@ -120,6 +123,15 @@ pub fn tx_message(hasher: &Hasher, from_pk_x: Fr, to_field: Fr, amount: u64, non
     ])
 }
 
+fn pad_pk_x_bytes() -> Fr {
+    let mut x = [0u8; 32];
+    let hex = &crate::keys::PAD_PK_X_HEX[2..];
+    for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
+        x[i] = u8::from_str_radix(std::str::from_utf8(chunk).unwrap(), 16).unwrap();
+    }
+    x
+}
+
 /// Sign a transaction for tests/demos (production wallets sign client-side).
 pub fn make_signed_tx(
     hasher: &Hasher,
@@ -163,10 +175,18 @@ pub fn build_batch(
     let mut withdraw_hash = FR_ZERO;
     let mut da_commitment = FR_ZERO;
 
+    let pad_pk_x = pad_pk_x_bytes();
+
     let mut dep_entries = Vec::new();
     for (i, req) in deposits.iter().enumerate() {
         if req.pk_x == FR_ZERO {
             return Err(BuildError::ZeroDepositPk);
+        }
+        if req.pk_x == pad_pk_x {
+            return Err(BuildError::ReservedPaddingPk);
+        }
+        if req.amount == 0 {
+            return Err(BuildError::ZeroAmount);
         }
         let index = tree
             .find(&req.pk_x)
@@ -218,6 +238,12 @@ pub fn build_batch(
 
     let mut tx_entries = Vec::new();
     for (i, req) in txs.iter().enumerate() {
+        if req.amount == 0 {
+            return Err(BuildError::ZeroAmount);
+        }
+        if req.from_pk_x == pad_pk_x {
+            return Err(BuildError::ReservedPaddingPk);
+        }
         let from_index = tree
             .find(&req.from_pk_x)
             .ok_or(BuildError::SenderNotFound { tx_index: i })?;
@@ -240,6 +266,17 @@ pub fn build_batch(
             .ok_or(BuildError::BadSignature { tx_index: i })?;
         if !verify(hasher, &pk, msg, &req.sig) {
             return Err(BuildError::BadSignature { tx_index: i });
+        }
+        // Uniqueness: find() returns the first match; reject if another slot
+        // also holds this pk_x (malicious/corrupt tree state).
+        if tree
+            .leaves
+            .iter()
+            .filter(|(_, a)| a.pk_x == req.from_pk_x)
+            .count()
+            != 1
+        {
+            return Err(BuildError::SenderNotFound { tx_index: i });
         }
 
         let (from_siblings, _) = tree.path(hasher, from_index);
