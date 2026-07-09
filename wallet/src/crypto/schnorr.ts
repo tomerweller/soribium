@@ -55,6 +55,8 @@ export function verify(pkX: Fr, pkY: Fr, msg: Fr, sig: Signature): boolean {
   if (s === 0n) {
     return false;
   }
+  // Even-y is enforced for active spends in the batch circuit (apply_tx), not
+  // in bare verify_sig — padding uses a published odd-y key by design.
   try {
     const pk = pointFromAffine(pkX, pkY);
     const R = pointFromAffine(sig.r_x, sig.r_y);

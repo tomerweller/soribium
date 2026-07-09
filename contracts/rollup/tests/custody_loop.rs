@@ -223,4 +223,34 @@ fn deposit_validation() {
     assert!(s.rollup.try_deposit(&s.alice_l1, &non_canonical, &100).is_err());
     let zero = BytesN::from_array(&s.env, &[0u8; 32]);
     assert!(s.rollup.try_deposit(&s.alice_l1, &zero, &100).is_err());
+    // Public padding keypair (sk=7) must never receive credits.
+    let pad = BytesN::from_array(&s.env, &rollup::PAD_PK_X);
+    assert!(s.rollup.try_deposit(&s.alice_l1, &pad, &100).is_err());
+}
+
+#[test]
+fn deposit_lifetime_credit_cap() {
+    // Two deposits that sum past u64::MAX for the same pk_x must reject the
+    // second (prevents an unprovable queue head / permanent jam). Dedicated
+    // setup so alice can be minted near u64::MAX of the custody asset.
+    let env = Env::default();
+    env.cost_estimate().budget().reset_unlimited();
+    env.mock_all_auths();
+    let m = meta();
+    let admin = Address::generate(&env);
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let token_admin = token::StellarAssetClient::new(&env, &sac.address());
+    let alice = Address::generate(&env);
+    token_admin.mint(&alice, &i128::from(u64::MAX));
+    let vk = Bytes::from_slice(&env, VK);
+    let genesis = BytesN::from_array(&env, &m.old_root);
+    let rollup_id = env.register(RollupContract, (sac.address(), vk, genesis));
+    let rollup = RollupContractClient::new(&env, &rollup_id);
+    let pk = BytesN::from_array(&env, &m.alice_pk_x);
+
+    let almost = i128::from(u64::MAX - 10);
+    rollup.deposit(&alice, &pk, &almost);
+    assert!(rollup.try_deposit(&alice, &pk, &20).is_err());
+    // Remaining room is 10; a 5-unit top-up still fits the lifetime cap.
+    rollup.deposit(&alice, &pk, &5);
 }

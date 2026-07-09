@@ -5,9 +5,15 @@
 // This avoids predicated blackbox calls (MSM on garbage points) entirely.
 // `is_active` then only gates the deposit/withdraw fold accumulators, which
 // is what binds entries to the on-chain recomputed hashes.
-use crate::account::{leaf_value, Account, DOMAIN_LEAF};
+//
+// Active-entry guards (security remediation):
+// - amount > 0 (no free nonce burns / zero-credit deposits)
+// - from_pk_x / deposit pk_x != PAD_PK_X (padding sk=7 is public; that
+//   account must never hold funds or authorize spends)
+// - active signer pk_y is even (canonical y-parity binding for pk_x accounts)
+use crate::account::{leaf_value, Account};
 use crate::merkle::{update_root, DEPTH};
-use crate::schnorr::{verify_sig, Signature};
+use crate::schnorr::{is_even_y, verify_sig, Signature};
 use dep::poseidon::poseidon2::Poseidon2;
 
 pub global DOMAIN_TX: Field = 2;
@@ -17,6 +23,7 @@ pub global DOMAIN_DA: Field = 7;
 
 // Fixed padding signature: sk=7, k=13, msg=42 over Grumpkin (harness
 // keys::pad_signature() regenerates; schnorr_test pins the same values).
+// PUBLIC by design - only safe because active entries blacklist PAD_PK_X.
 pub global PAD_PK_X: Field = 0x0e602b9dd6a3e8d039a17f069add3f9c2a187a8f629a1de60a33a8067b9b2842;
 pub global PAD_PK_Y: Field = 0x14cc8e83df1b5cbb163bd2c94005cb0707fe570def5a165242b1c1419cb014cb;
 pub global PAD_MSG: Field = 42;
@@ -57,8 +64,18 @@ pub fn apply_deposit(root: Field, dep_acc: Field, d: DepositWitness) -> (Field, 
     let is_empty = if d.old_pk_x == 0 { 1 } else { 0 };
     if d.is_active == 1 {
         assert(d.pk_x != 0);
+        assert(d.amount != 0);
+        // Padding keypair sk is public - never credit it.
+        assert(d.pk_x != PAD_PK_X);
         if is_empty == 0 {
             assert(d.old_pk_x == d.pk_x);
+        }
+        // Empty-slot init: pre-state must be the canonical empty account
+        // (pk_x already 0 via is_empty; pin balance/nonce so a non-zero ghost
+        // state can't be smuggled under a zero leaf).
+        if is_empty == 1 {
+            assert(d.old_balance == 0);
+            assert(d.old_nonce == 0);
         }
     }
     let new_balance = select(is_empty, d.amount, d.old_balance + d.amount);
@@ -126,6 +143,11 @@ pub fn apply_tx(root: Field, wd_acc: Field, da_acc: Field, t: TxWitness) -> (Fie
     // --- debit sender (identity when inactive) ---
     if t.is_active == 1 {
         assert(t.from_pk_x != 0);
+        assert(t.amount != 0);
+        assert(t.from_pk_x != PAD_PK_X);
+        // Canonical y-parity: only even-y pubkeys may spend. Keygen must
+        // flip sk -> -sk when raw y is odd (harness + wallet do this).
+        assert(is_even_y(t.from_pk_y));
     }
     let old_sender = leaf_value(Account { pk_x: t.from_pk_x, balance: t.from_balance, nonce: t.from_nonce });
     let debited = t.from_balance - t.amount;
@@ -150,6 +172,7 @@ pub fn apply_tx(root: Field, wd_acc: Field, da_acc: Field, t: TxWitness) -> (Fie
     let is_transfer = t.is_active * (1 - t.is_withdraw);
     if is_transfer == 1 {
         assert(t.to_field != 0);
+        assert(t.to_field != PAD_PK_X);
     }
     let credited = t.to_balance + t.amount;
     assert_u64(select(is_transfer, credited, 0));

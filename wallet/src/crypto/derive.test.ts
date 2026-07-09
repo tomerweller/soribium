@@ -17,9 +17,10 @@ describe('Freighter-signature key derivation', () => {
     const sk = await deriveSkFromSignature(SIG);
     expect(sk).toBeGreaterThan(0n);
     expect(sk).toBeLessThan(N_GRUMPKIN);
-    // pk derivation must succeed and be canonical.
+    // pk derivation must succeed and be even-y canonical.
     const pk = pkFromSk(sk);
     expect(pk.x).toBeGreaterThan(0n);
+    expect(pk.y & 1n).toBe(0n);
   });
 
   it('differs when the signature differs', async () => {

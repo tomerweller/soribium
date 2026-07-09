@@ -123,6 +123,9 @@ DAC signatures over `da_commitment` verified in `submit_batch`.
 
 Known deltas tracked for a production version (also in `DESIGN.md`):
 single-operator sequencer with no forced-exit / censorship escape hatch;
-localStorage key custody in the wallet; deposit-overflow and 256-account tree
-jams (the sequencer alarms on these); `pk_x` y-parity not bound; immutable VK
+localStorage key custody in the wallet; 256-account tree capacity;
+circuit-level `pk_x` uniqueness (honest builder only); immutable VK
 (a new circuit is a new contract instance); the verifier crate is unaudited.
+Active spends require even-y Grumpkin keys; lifetime deposit credit is capped
+at `u64::MAX` per `pk_x` to prevent unprovable queue heads; the public padding
+keypair cannot receive deposits.

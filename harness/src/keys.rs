@@ -8,6 +8,11 @@
 //!
 //! Scheme (DESIGN.md): R = k·G; e = Poseidon2([DOMAIN_SIG, R.x, pk_x, msg]);
 //! s = k + e·sk (mod Grumpkin scalar order). Verify: s·G == R + e·pk.
+//!
+//! Active spend keys are **even-y canonical**: if sk·G has odd y, keygen uses
+//! −sk (and −pk) so the circuit's `is_even_y(pk_y)` check passes. The padding
+//! keypair (sk=7) is intentionally *not* canonicalized — it is only used on
+//! the inactive path, which does not enforce even-y.
 
 use crate::poseidon::{fr_from_u64, Fr, Hasher};
 use ark_ec::{AffineRepr, CurveGroup};
@@ -16,11 +21,33 @@ use ark_grumpkin::{Affine, Fq as Coord, Fr as Scalar};
 
 pub const DOMAIN_SIG: u64 = 3;
 
+/// Padding account x-coordinate (sk=7·G). Must never receive deposits or
+/// authorize active spends — the secret is public (see circuits/lib/src/tx.nr).
+pub const PAD_PK_X_HEX: &str =
+    "0x0e602b9dd6a3e8d039a17f069add3f9c2a187a8f629a1de60a33a8067b9b2842";
+
 pub fn coord_to_fr(c: &Coord) -> Fr {
     let bytes = c.into_bigint().to_bytes_be();
     let mut out = [0u8; 32];
     out[32 - bytes.len()..].copy_from_slice(&bytes);
     out
+}
+
+fn y_is_odd(y: &Coord) -> bool {
+    y.into_bigint().is_odd()
+}
+
+/// Flip sk → −sk when pk has odd y, matching the circuit even-y rule.
+pub fn canonicalize_sk(sk: Scalar) -> (Scalar, Affine) {
+    let pk = (Affine::generator() * sk).into_affine();
+    if y_is_odd(&pk.y) {
+        let sk = -sk;
+        let pk = (Affine::generator() * sk).into_affine();
+        debug_assert!(!y_is_odd(&pk.y));
+        (sk, pk)
+    } else {
+        (sk, pk)
+    }
 }
 
 pub struct Keypair {
@@ -33,7 +60,14 @@ impl Keypair {
         Self::from_sk(Scalar::rand(rng))
     }
 
+    /// User/spend keygen: even-y canonical.
     pub fn from_sk(sk: Scalar) -> Self {
+        let (sk, pk) = canonicalize_sk(sk);
+        Self { sk, pk }
+    }
+
+    /// Raw keygen without even-y flip — only for the public padding keypair.
+    pub fn from_sk_raw(sk: Scalar) -> Self {
         let pk = (Affine::generator() * sk).into_affine();
         Self { sk, pk }
     }
@@ -87,13 +121,14 @@ impl Signature {
 }
 
 /// Reconstruct a public key from untrusted wire coordinates, checking curve
-/// membership (Grumpkin has cofactor 1, so on-curve implies correct subgroup).
+/// membership (Grumpkin has cofactor 1, so on-curve implies correct subgroup)
+/// and even-y canonical form required by the circuit for active spends.
 pub fn pk_from_coords(pk_x: &Fr, pk_y: &Fr) -> Option<Affine> {
     let p = Affine::new_unchecked(
         Coord::from_be_bytes_mod_order(pk_x),
         Coord::from_be_bytes_mod_order(pk_y),
     );
-    if !p.is_on_curve() || p.infinity {
+    if !p.is_on_curve() || p.infinity || y_is_odd(&p.y) {
         return None;
     }
     Some(p)
@@ -124,14 +159,18 @@ pub fn sign_with_nonce(hasher: &Hasher, keypair: &Keypair, msg: Fr, k: Scalar) -
 
 /// The fixed padding signature baked into circuits/lib/src/tx.nr (PAD_*
 /// globals): sk=7, k=13, msg=42. Public by design; padded batch entries
-/// re-verify it instead of predicating the MSM.
+/// re-verify it instead of predicating the MSM. Uses raw (non-canonical) sk
+/// so the published PAD_* constants stay stable.
 pub fn pad_signature(hasher: &Hasher) -> Signature {
-    let keypair = Keypair::from_sk(Scalar::from(7u64));
+    let keypair = Keypair::from_sk_raw(Scalar::from(7u64));
     sign_with_nonce(hasher, &keypair, fr_from_u64(42), Scalar::from(13u64))
 }
 
 /// Off-chain sanity check with the same equation the circuit enforces.
 pub fn verify(hasher: &Hasher, pk: &Affine, msg: Fr, sig: &Signature) -> bool {
+    if sig.s == Scalar::from(0u64) {
+        return false;
+    }
     let pk_x = coord_to_fr(&pk.x);
     let e = challenge(hasher, sig.r_x, pk_x, msg);
     let s_g = (Affine::generator() * sig.s).into_affine();
@@ -139,11 +178,11 @@ pub fn verify(hasher: &Hasher, pk: &Affine, msg: Fr, sig: &Signature) -> bool {
         Coord::from_be_bytes_mod_order(&sig.r_x),
         Coord::from_be_bytes_mod_order(&sig.r_y),
     );
-    if !r.is_on_curve() {
+    if !r.is_on_curve() || r.infinity {
         return false;
     }
     let rhs = (r + *pk * e).into_affine();
-    s_g == rhs
+    s_g == rhs && !s_g.infinity
 }
 
 #[cfg(test)]
@@ -167,7 +206,7 @@ mod tests {
     #[test]
     fn limb_split_reconstructs() {
         let hasher = Hasher::new();
-        let keypair = Keypair::from_sk(Scalar::from(7u64));
+        let keypair = Keypair::from_sk_raw(Scalar::from(7u64));
         let sig = sign_with_nonce(&hasher, &keypair, fr_from_u64(42), Scalar::from(13u64));
         let (lo, hi) = sig.s_limbs();
         // lo + hi * 2^128 == s
@@ -177,5 +216,19 @@ mod tests {
         assert_eq!(lo_int + hi_int * two_128, sig.s);
         // hi limb's top 16 bytes are zero by construction
         assert_eq!(hi[..16], [0u8; 16]);
+    }
+
+    #[test]
+    fn from_sk_is_even_y() {
+        for sk in [1u64, 7, 101, 202, 999] {
+            let kp = Keypair::from_sk(Scalar::from(sk));
+            assert!(!y_is_odd(&kp.pk.y), "sk={sk} should canonicalize to even y");
+        }
+    }
+
+    #[test]
+    fn pad_keypair_matches_published_constants() {
+        let kp = Keypair::from_sk_raw(Scalar::from(7u64));
+        assert_eq!(crate::poseidon::to_hex(&kp.pk_x()), PAD_PK_X_HEX);
     }
 }

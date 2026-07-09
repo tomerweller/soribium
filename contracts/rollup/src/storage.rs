@@ -11,6 +11,11 @@ pub enum DataKey {
     DepTail,
     /// FIFO deposit queue entry (ring buffer by sequence number).
     Dep(u64),
+    /// Lifetime L2 credit enqueued for `pk_x` (sum of all deposits to that
+    /// key). Used to reject deposits that could never be proven (u64 balance
+    /// overflow jam). Decrements are not tracked on withdraw — the cap is
+    /// conservative (lifetime deposits ≤ u64::MAX per pk_x).
+    LifetimeCredit(BytesN<32>),
 }
 
 #[contracttype]
@@ -77,4 +82,17 @@ pub fn dequeue_deposits(env: &Env, count: u64) {
         env.storage().persistent().remove(&DataKey::Dep(seq));
     }
     env.storage().instance().set(&DataKey::DepHead, &(head + count));
+}
+
+pub fn lifetime_credit(env: &Env, pk_x: &BytesN<32>) -> u128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::LifetimeCredit(pk_x.clone()))
+        .unwrap_or(0u128)
+}
+
+pub fn set_lifetime_credit(env: &Env, pk_x: &BytesN<32>, credit: u128) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::LifetimeCredit(pk_x.clone()), &credit);
 }
