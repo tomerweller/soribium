@@ -234,3 +234,38 @@ Shaped for a solo maintainer heading to production: everything fast and hermetic
 - ~75 tests exist across 4 stacks; **0 run on PRs**; nargo tests run in **no** CI at all.
 - Lines with zero direct tests: `sequencer/src/engine.rs` (860), `sequencer/src/db.rs` (567), `harness/src/batch.rs` (370), `circuits/lib/src/tx.nr` (194) + `batch.nr` (37).
 - Best-in-repo pattern to build on: `contracts/rollup/tests/custody_loop.rs` (real-proof adversarial fixtures) and `wallet/src/crypto/vectors.test.ts` (the vector gate) — the architecture above mostly generalizes these two ideas.
+
+---
+
+## 5. Implementation status (2026-07-16)
+
+P0 and P1 are implemented (same day as the audit). What shipped, by roadmap item:
+
+| # | Item | Where |
+|---|---|---|
+| P0.1 | PR CI, all suites, no cross-stack path filters | `.github/workflows/ci.yml` (circuits / rust / wallet jobs) |
+| P0.2 | Circuit state-transition tests (16) | `circuits/lib/src/tx_test.nr` + generated `tx_vectors.nr` (`harness -- noir-tx-vectors`) |
+| P0.3 | Pinned derive golden vector | `wallet/src/crypto/derive.test.ts` |
+| P0.4 | build_batch unit suite + blob/DA round-trip | `harness/src/batch.rs::tests`, `sequencer/src/engine.rs::tests` |
+| P0.5 | Vectors single source of truth | `fixtures/vectors.json` (`harness -- vectors-json`), `scripts/check_vectors.sh`, `contracts/rollup/tests/vectors_equiv.rs` |
+| P1.6 | Engine integration suite (8 tests incl. 5-branch boot matrix) | `sequencer/src/engine.rs::engine_tests` |
+| P1.7 | Contract edge cases | `contracts/rollup/tests/edge_cases.rs` |
+| P1.8 | build_batch proptests | `harness/src/batch.rs::prop_tests` |
+| P1.9 | Nightly fixture-drift alarm | `.github/workflows/nightly.yml` |
+
+Bugs found and fixed while implementing:
+1. **Batch-failure wedge**: `fail_batch` kept the failed row under its
+   `batch_num` (PRIMARY KEY); the rebuild reused the number and every later
+   `insert_batch` hit the UNIQUE constraint — batching permanently stuck
+   after any failed submission. Failed rows are now deleted after requeue
+   (also in boot recovery's interrupted-prove path).
+2. **Confirm-replay divergence**: `confirm_batch` replayed into the live
+   tree before the root check; a corrupt batch row would leave in-memory
+   state silently diverged. Replay now runs on a clone.
+3. (Pre-dating the audit, caught the same day it predicted the class:)
+   stale `batch_n16`/`batch_n64` fixture VKs from the circuit security
+   remediation broke e2e — the nightly drift alarm now automates that check.
+
+Remaining: P2 items (§4) — wallet API-client tests vs the mock server,
+localnet e2e in nightly, Send-flow component test, watcher/db unit tests,
+`smoke_sequencer.sh` cleanup.
