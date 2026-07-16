@@ -1,0 +1,64 @@
+# Fixture-drift alarm: regenerate the proof fixtures from the CURRENT
+# circuits with real nargo+bb, re-run the contract's real-proof tests
+# against them, and fail if the checked-in VKs/meta moved. Catches "circuit
+# changed, fixtures stale" — invisible to the PR gate (which is fixture-based
+# by design) and exactly the failure mode that broke e2e after the circuit
+# security remediation (stale batch_n16 VK).
+#
+# Proof bytes are excluded from the diff (only vk/meta/vectors are compared)
+# so prover nondeterminism can't false-alarm; proof validity is covered by
+# `cargo test -p rollup` running against the freshly generated fixtures.
+name: nightly
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+env:
+  NARGO_VERSION: 1.0.0-beta.11
+  BB_VERSION: 0.87.0
+
+jobs:
+  fixture-drift:
+    # ubuntu-24.04: bb needs GLIBC >= 2.38.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache noir + bb toolchain
+        id: cache-tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.nargo
+            ~/.bb
+          key: tools-${{ env.NARGO_VERSION }}-${{ env.BB_VERSION }}
+      - name: Install nargo + bb (pinned, same commits as Dockerfile)
+        if: steps.cache-tools.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/noir-lang/noirup/c3bc9922bf7eeafdaba08fb6518776c4ba263a8c/install" -o /tmp/noirup.sh
+          bash /tmp/noirup.sh
+          ~/.nargo/bin/noirup -v $NARGO_VERSION
+          curl -fsSL "https://raw.githubusercontent.com/AztecProtocol/aztec-packages/073ea66ad92c53ebbf7be70d28973a68a8628942/barretenberg/bbup/install" -o /tmp/bbup.sh
+          bash /tmp/bbup.sh
+          ~/.bb/bbup -v $BB_VERSION
+
+      - name: Regenerate fixtures from current circuits (real proving)
+        run: |
+          cargo run -q --release -p harness -- demo-batch
+          cargo run -q --release -p harness -- demo-batch-n16
+
+      - name: Contract tests against FRESH fixtures
+        run: cargo test -p rollup
+
+      - name: Drift alarm (vk/meta/vectors must match checked-in copies)
+        run: |
+          git diff --exit-code fixtures/batch_n4/vk.bin fixtures/batch_n4/meta.json \
+            fixtures/batch_n16/vk.bin fixtures/vectors.json || {
+            echo "::error::Checked-in fixtures no longer match the current circuits."
+            echo "Regenerate (demo-batch / demo-batch-n16 / vectors-json), re-run all suites, and commit."
+            exit 1
+          }
