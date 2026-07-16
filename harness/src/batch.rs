@@ -93,6 +93,7 @@ pub struct TxEntry {
     pub sig: Signature,
 }
 
+#[derive(Debug)]
 pub struct BatchWitness {
     pub old_root: Fr,
     pub new_root: Fr,
@@ -367,4 +368,252 @@ pub fn build_batch(
         deposits: dep_entries,
         txs: tx_entries,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::keys::sign_with_nonce;
+    use ark_grumpkin::Fr as Scalar;
+
+    fn keys() -> (Keypair, Keypair) {
+        (
+            Keypair::from_sk(Scalar::from(101u64)),
+            Keypair::from_sk(Scalar::from(202u64)),
+        )
+    }
+
+    /// Deterministically signed tx (fixed k per call site).
+    fn signed(hasher: &Hasher, from: &Keypair, to: Fr, amount: u64, nonce: u64, wd: bool, k: u64) -> SignedTx {
+        let msg = tx_message(hasher, from.pk_x(), to, amount, nonce, wd);
+        SignedTx {
+            from_pk_x: from.pk_x(),
+            from_pk_y: from.pk_y(),
+            to_field: to,
+            amount,
+            nonce,
+            is_withdraw: wd,
+            sig: sign_with_nonce(hasher, from, msg, Scalar::from(k)),
+        }
+    }
+
+    /// Standard scenario: deposit alice+bob, alice->bob transfer, bob withdrawal.
+    fn scenario(hasher: &Hasher) -> (Tree, Vec<DepositRequest>, Vec<SignedTx>) {
+        let (alice, bob) = keys();
+        let deposits = vec![
+            DepositRequest { pk_x: alice.pk_x(), amount: 1_000_000 },
+            DepositRequest { pk_x: bob.pk_x(), amount: 500_000 },
+        ];
+        let txs = vec![
+            signed(hasher, &alice, bob.pk_x(), 250_000, 0, false, 11),
+            signed(hasher, &bob, fr_from_u64(770_007), 100_000, 0, true, 12),
+        ];
+        (Tree::new(), deposits, txs)
+    }
+
+    #[test]
+    fn folds_and_root_match_independent_recomputation() {
+        let hasher = Hasher::new();
+        let (mut tree, deposits, txs) = scenario(&hasher);
+        let w = build_batch(&hasher, &mut tree, 2, 4, &deposits, &txs).unwrap();
+
+        // Folds recomputed from the raw requests, not the witness entries.
+        let mut dep_acc = FR_ZERO;
+        for d in &deposits {
+            dep_acc = fold(&hasher, DOMAIN_DEP, dep_acc, d.pk_x, fr_from_u64(d.amount));
+        }
+        assert_eq!(w.deposit_hash, dep_acc);
+
+        let mut wd_acc = FR_ZERO;
+        let mut da_acc = FR_ZERO;
+        for t in &txs {
+            let msg = tx_message(&hasher, t.from_pk_x, t.to_field, t.amount, t.nonce, t.is_withdraw);
+            if t.is_withdraw {
+                wd_acc = fold(&hasher, DOMAIN_WD, wd_acc, t.to_field, fr_from_u64(t.amount));
+            }
+            da_acc = fold3(&hasher, DOMAIN_DA, da_acc, msg);
+        }
+        assert_eq!(w.withdraw_hash, wd_acc);
+        assert_eq!(w.da_commitment, da_acc);
+
+        // Root recomputed by applying the same ops to an independent tree.
+        let (alice, bob) = keys();
+        let mut expect = Tree::new();
+        expect.set(0, Account { pk_x: alice.pk_x(), balance: 750_000, nonce: 1 });
+        expect.set(1, Account { pk_x: bob.pk_x(), balance: 650_000, nonce: 1 });
+        assert_eq!(w.new_root, expect.root(&hasher));
+        assert_eq!(w.old_root, Tree::new().root(&hasher));
+    }
+
+    #[test]
+    fn deterministic_and_padded_to_slots() {
+        let hasher = Hasher::new();
+        let (mut t1, deposits, txs) = scenario(&hasher);
+        let (mut t2, ..) = scenario(&hasher);
+        let a = build_batch(&hasher, &mut t1, 4, 8, &deposits, &txs).unwrap();
+        let b = build_batch(&hasher, &mut t2, 4, 8, &deposits, &txs).unwrap();
+        assert_eq!(a.new_root, b.new_root);
+        assert_eq!(a.da_commitment, b.da_commitment);
+
+        // Slot counts + padding shape.
+        assert_eq!(a.deposits.len(), 4);
+        assert_eq!(a.txs.len(), 8);
+        let pad_sig = pad_signature(&hasher);
+        for d in &a.deposits[2..] {
+            assert!(!d.is_active);
+            assert_eq!(d.index, 0);
+            assert_eq!(d.amount, 0);
+        }
+        for t in &a.txs[2..] {
+            assert!(!t.is_active);
+            assert_eq!(t.from_index, 0);
+            assert_eq!((t.sig.r_x, t.sig.r_y, t.sig.s), (pad_sig.r_x, pad_sig.r_y, pad_sig.s));
+        }
+        // Padding must not contribute to any fold: rebuild without padding.
+        let (mut t3, ..) = scenario(&hasher);
+        let tight = build_batch(&hasher, &mut t3, 2, 2, &deposits, &txs).unwrap();
+        assert_eq!(tight.deposit_hash, a.deposit_hash);
+        assert_eq!(tight.withdraw_hash, a.withdraw_hash);
+        assert_eq!(tight.da_commitment, a.da_commitment);
+        assert_eq!(tight.new_root, a.new_root);
+    }
+
+    /// The validium recipe: re-folding the published tx list reproduces the
+    /// proven da_commitment (what every external DA verifier recomputes).
+    #[test]
+    fn da_commitment_refolds_from_tx_list() {
+        let hasher = Hasher::new();
+        let (mut tree, deposits, txs) = scenario(&hasher);
+        let w = build_batch(&hasher, &mut tree, 2, 4, &deposits, &txs).unwrap();
+        let mut acc = FR_ZERO;
+        for t in &txs {
+            acc = fold3(
+                &hasher,
+                DOMAIN_DA,
+                acc,
+                tx_message(&hasher, t.from_pk_x, t.to_field, t.amount, t.nonce, t.is_withdraw),
+            );
+        }
+        assert_eq!(acc, w.da_commitment);
+    }
+
+    #[test]
+    fn build_error_matrix() {
+        let hasher = Hasher::new();
+        let (alice, bob) = keys();
+        let pad_x = pad_pk_x_bytes();
+
+        // Each case: (tree setup, deposits, txs) -> expected error.
+        let fresh = |dep: Vec<DepositRequest>, txs: Vec<SignedTx>| {
+            let mut tree = Tree::new();
+            tree.set(0, Account { pk_x: alice.pk_x(), balance: 1_000_000, nonce: 0 });
+            tree.set(1, Account { pk_x: bob.pk_x(), balance: 500_000, nonce: 0 });
+            build_batch(&hasher, &mut tree, 4, 4, &dep, &txs)
+        };
+
+        // -- deposits --
+        assert_eq!(
+            fresh(vec![DepositRequest { pk_x: FR_ZERO, amount: 5 }], vec![]).unwrap_err(),
+            BuildError::ZeroDepositPk
+        );
+        assert_eq!(
+            fresh(vec![DepositRequest { pk_x: pad_x, amount: 5 }], vec![]).unwrap_err(),
+            BuildError::ReservedPaddingPk
+        );
+        assert_eq!(
+            fresh(vec![DepositRequest { pk_x: alice.pk_x(), amount: 0 }], vec![]).unwrap_err(),
+            BuildError::ZeroAmount
+        );
+        assert_eq!(
+            {
+                let mut tree = Tree::new();
+                tree.set(0, Account { pk_x: alice.pk_x(), balance: u64::MAX - 1, nonce: 0 });
+                build_batch(
+                    &hasher,
+                    &mut tree,
+                    2,
+                    2,
+                    &[DepositRequest { pk_x: alice.pk_x(), amount: 2 }],
+                    &[],
+                )
+                .unwrap_err()
+            },
+            BuildError::BalanceOverflow { deposit_index: 0 }
+        );
+
+        // -- txs --
+        let carol = Keypair::from_sk(Scalar::from(303u64));
+        assert_eq!(
+            fresh(vec![], vec![signed(&hasher, &carol, alice.pk_x(), 5, 0, false, 21)]).unwrap_err(),
+            BuildError::SenderNotFound { tx_index: 0 }
+        );
+        assert_eq!(
+            fresh(vec![], vec![signed(&hasher, &alice, bob.pk_x(), 5, 7, false, 22)]).unwrap_err(),
+            BuildError::NonceMismatch { tx_index: 0, expected: 0, got: 7 }
+        );
+        assert_eq!(
+            fresh(vec![], vec![signed(&hasher, &alice, bob.pk_x(), 2_000_000, 0, false, 23)]).unwrap_err(),
+            BuildError::InsufficientBalance { tx_index: 0, balance: 1_000_000, amount: 2_000_000 }
+        );
+        assert_eq!(
+            fresh(vec![], vec![signed(&hasher, &alice, carol.pk_x(), 5, 0, false, 24)]).unwrap_err(),
+            BuildError::RecipientNotFound { tx_index: 0 }
+        );
+        assert_eq!(
+            fresh(vec![], vec![signed(&hasher, &alice, bob.pk_x(), 0, 0, false, 25)]).unwrap_err(),
+            BuildError::ZeroAmount
+        );
+        // Tampered signature.
+        let mut bad = signed(&hasher, &alice, bob.pk_x(), 5, 0, false, 26);
+        bad.amount = 6;
+        assert_eq!(fresh(vec![], vec![bad]).unwrap_err(), BuildError::BadSignature { tx_index: 0 });
+        // Odd-y sender pk fails pk reconstruction.
+        let mut odd = signed(&hasher, &alice, bob.pk_x(), 5, 0, false, 27);
+        odd.from_pk_y = fr_from_u64(3); // not alice's y; also not on curve
+        assert_eq!(fresh(vec![], vec![odd]).unwrap_err(), BuildError::BadSignature { tx_index: 0 });
+
+        // -- capacity --
+        assert_eq!(
+            fresh(
+                (0..5).map(|i| DepositRequest { pk_x: fr_from_u64(1000 + i), amount: 1 }).collect(),
+                vec![]
+            )
+            .unwrap_err(),
+            BuildError::TooManyEntries
+        );
+        let mut full = Tree::new();
+        for i in 0..crate::tree::N_LEAVES as u32 {
+            full.set(i, Account { pk_x: fr_from_u64(10_000 + i as u64), balance: 1, nonce: 0 });
+        }
+        assert_eq!(
+            build_batch(&hasher, &mut full, 1, 1, &[DepositRequest { pk_x: alice.pk_x(), amount: 1 }], &[])
+                .unwrap_err(),
+            BuildError::TreeFull
+        );
+    }
+
+    #[test]
+    fn deposit_then_spend_in_same_batch() {
+        // Deposits apply before txs: a fresh account can spend in the batch
+        // that credits it (this ordering is what the sequencer relies on).
+        let hasher = Hasher::new();
+        let (alice, bob) = keys();
+        let mut tree = Tree::new();
+        let w = build_batch(
+            &hasher,
+            &mut tree,
+            2,
+            2,
+            &[
+                DepositRequest { pk_x: alice.pk_x(), amount: 100 },
+                DepositRequest { pk_x: bob.pk_x(), amount: 1 },
+            ],
+            &[signed(&hasher, &alice, bob.pk_x(), 100, 0, false, 31)],
+        )
+        .unwrap();
+        let mut expect = Tree::new();
+        expect.set(0, Account { pk_x: alice.pk_x(), balance: 0, nonce: 1 });
+        expect.set(1, Account { pk_x: bob.pk_x(), balance: 101, nonce: 0 });
+        assert_eq!(w.new_root, expect.root(&hasher));
+    }
 }

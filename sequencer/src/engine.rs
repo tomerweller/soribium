@@ -483,7 +483,7 @@ impl Engine {
             ) {
                 Ok(witness) => {
                     let batch_num = self.confirmed_batch_num() + 1;
-                    let blob = self.blob_json(batch_num, &witness, &deposits, &txs);
+                    let blob = blob_json(batch_num, &witness, &deposits, &txs);
                     let envelope = envelope_json(&witness, deposits.len() as u32, &txs);
                     let prover_toml = harness::prover::to_prover_toml(&witness);
                     db::insert_batch(
@@ -677,13 +677,16 @@ impl Engine {
         Tree { leaves: self.tree.leaves.clone() }
     }
 
-    fn blob_json(
-        &self,
-        batch_num: u64,
-        witness: &harness::batch::BatchWitness,
-        deposits: &[db::DepositRow],
-        txs: &[db::MempoolRow],
-    ) -> String {
+}
+
+/// The published DA blob for one batch (free function: also the seam the
+/// round-trip tests drive — `parse_blob(blob_json(..)) == build inputs`).
+pub(crate) fn blob_json(
+    batch_num: u64,
+    witness: &harness::batch::BatchWitness,
+    deposits: &[db::DepositRow],
+    txs: &[db::MempoolRow],
+) -> String {
         serde_json::json!({
             "batch_num": batch_num,
             "old_root": fr_hex(&witness.old_root),
@@ -712,7 +715,6 @@ impl Engine {
             })).collect::<Vec<_>>(),
         })
         .to_string()
-    }
 }
 
 fn row_to_signed(row: &db::MempoolRow) -> SignedTx {
@@ -857,4 +859,120 @@ pub fn load_and_reconcile(
     }
 
     Ok(BootState { tree, chain_synced: true })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use harness::batch::{build_batch, tx_message, DepositRequest};
+    use harness::keys::{sign_with_nonce, Keypair};
+    use harness::poseidon::{fr_from_u64, FR_ZERO};
+
+    /// parse_blob(blob_json(..)) reproduces the exact build inputs, and
+    /// re-folding the blob's tx list reproduces the proven da_commitment —
+    /// the documented external DA-verifier recipe, as a unit test.
+    #[test]
+    fn blob_round_trips_and_refolds() {
+        let hasher = Hasher::new();
+        let alice = Keypair::from_sk(ark_grumpkin::Fr::from(101u64));
+        let bob = Keypair::from_sk(ark_grumpkin::Fr::from(202u64));
+
+        let deposits = vec![
+            DepositRequest { pk_x: alice.pk_x(), amount: 1_000_000 },
+            DepositRequest { pk_x: bob.pk_x(), amount: 500_000 },
+        ];
+        let msg1 = tx_message(&hasher, alice.pk_x(), bob.pk_x(), 250_000, 0, false);
+        let sig1 = sign_with_nonce(&hasher, &alice, msg1, ark_grumpkin::Fr::from(41u64));
+        let wd_field = fr_from_u64(770_007);
+        let msg2 = tx_message(&hasher, bob.pk_x(), wd_field, 100_000, 0, true);
+        let sig2 = sign_with_nonce(&hasher, &bob, msg2, ark_grumpkin::Fr::from(42u64));
+
+        let signed = vec![
+            SignedTx {
+                from_pk_x: alice.pk_x(), from_pk_y: alice.pk_y(), to_field: bob.pk_x(),
+                amount: 250_000, nonce: 0, is_withdraw: false, sig: sig1.clone(),
+            },
+            SignedTx {
+                from_pk_x: bob.pk_x(), from_pk_y: bob.pk_y(), to_field: wd_field,
+                amount: 100_000, nonce: 0, is_withdraw: true, sig: sig2.clone(),
+            },
+        ];
+        let mut tree = Tree::new();
+        let witness = build_batch(&hasher, &mut tree, 2, 4, &deposits, &signed).unwrap();
+
+        // Rows as the DB would hold them.
+        let dep_rows: Vec<db::DepositRow> = deposits
+            .iter()
+            .enumerate()
+            .map(|(i, d)| db::DepositRow { seq: i as u64, pk_x: d.pk_x, amount: d.amount, status: "batching".into() })
+            .collect();
+        let tx_rows: Vec<db::MempoolRow> = signed
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let (s_lo, s_hi) = t.sig.s_limbs();
+                db::MempoolRow {
+                    id: i as i64 + 1,
+                    from_pk_x: t.from_pk_x,
+                    from_pk_y: t.from_pk_y,
+                    to_field: t.to_field,
+                    withdraw_dest: t.is_withdraw.then(|| "GTESTDEST".to_string()),
+                    amount: t.amount,
+                    nonce: t.nonce,
+                    is_withdraw: t.is_withdraw,
+                    sig_r_x: t.sig.r_x,
+                    sig_r_y: t.sig.r_y,
+                    sig_s_lo: s_lo,
+                    sig_s_hi: s_hi,
+                    status: "batching".into(),
+                    received_at: 0,
+                }
+            })
+            .collect();
+
+        let blob_str = blob_json(7, &witness, &dep_rows, &tx_rows);
+        let blob: serde_json::Value = serde_json::from_str(&blob_str).unwrap();
+        assert_eq!(blob["batch_num"], 7);
+        assert_eq!(blob["da_commitment"], fr_hex(&witness.da_commitment));
+
+        // Round-trip to build inputs.
+        let (deps2, txs2) = parse_blob(&blob).unwrap();
+        assert_eq!(deps2.len(), deposits.len());
+        for (a, b) in deposits.iter().zip(&deps2) {
+            assert_eq!(a.pk_x, b.pk_x);
+            assert_eq!(a.amount, b.amount);
+        }
+        assert_eq!(txs2.len(), signed.len());
+        for (a, b) in signed.iter().zip(&txs2) {
+            assert_eq!(a.from_pk_x, b.from_pk_x);
+            assert_eq!(a.to_field, b.to_field);
+            assert_eq!(a.amount, b.amount);
+            assert_eq!(a.nonce, b.nonce);
+            assert_eq!(a.is_withdraw, b.is_withdraw);
+            assert_eq!(a.sig.s, b.sig.s);
+        }
+
+        // Rebuilding from the parsed blob reproduces the same witness
+        // (deterministic replay — the confirm path's core assumption).
+        let mut tree2 = Tree::new();
+        let replay = build_batch(&hasher, &mut tree2, 2, 4, &deps2, &txs2).unwrap();
+        assert_eq!(replay.new_root, witness.new_root);
+        assert_eq!(replay.da_commitment, witness.da_commitment);
+
+        // External verifier recipe: fold the blob's tx messages.
+        let mut acc = FR_ZERO;
+        for t in blob["txs"].as_array().unwrap() {
+            let fr = |k: &str| parse_fr(t[k].as_str().unwrap()).unwrap();
+            let msg = tx_message(
+                &hasher,
+                fr("from_pk_x"),
+                fr("to_field"),
+                t["amount"].as_str().unwrap().parse().unwrap(),
+                t["nonce"].as_u64().unwrap(),
+                t["is_withdraw"].as_bool().unwrap(),
+            );
+            acc = hasher.hash(&[fr_from_u64(harness::batch::DOMAIN_DA), acc, msg]);
+        }
+        assert_eq!(fr_hex(&acc), fr_hex(&witness.da_commitment));
+    }
 }
