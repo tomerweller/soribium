@@ -617,3 +617,148 @@ mod tests {
         assert_eq!(w.new_root, expect.root(&hasher));
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    use super::*;
+    use crate::keys::{sign_with_nonce, Keypair};
+    use ark_grumpkin::Fr as Scalar;
+    use proptest::prelude::*;
+
+    /// A random-but-valid batch plan: account balances plus a tx script of
+    /// (from, to, amount-percent, is_withdraw). Amounts derive from tracked
+    /// balances so every signed tx is valid by construction.
+    #[derive(Debug, Clone)]
+    struct Plan {
+        balances: Vec<u64>,
+        script: Vec<(usize, usize, u8, bool)>,
+    }
+
+    fn plan_strategy() -> impl Strategy<Value = Plan> {
+        (2usize..5)
+            .prop_flat_map(|n| {
+                (
+                    proptest::collection::vec(1u64..1_000_000_000_000, n),
+                    proptest::collection::vec(
+                        ((0usize..n), (0usize..n), (1u8..100), any::<bool>()),
+                        1..4,
+                    ),
+                )
+            })
+            .prop_map(|(balances, script)| Plan { balances, script })
+    }
+
+    fn keypairs(n: usize) -> Vec<Keypair> {
+        (0..n).map(|i| Keypair::from_sk(Scalar::from(1_000 + i as u64))).collect()
+    }
+
+    proptest! {
+        // Depth-8 roots through the soroban-host Poseidon are ~ms each;
+        // 16 cases keeps the property meaningful and the suite fast.
+        #![proptest_config(ProptestConfig::with_cases(16))]
+
+        /// Every valid plan builds, and the witness self-verifies: the DA
+        /// commitment re-folds from the tx list and the new root equals an
+        /// independent application of the same plan.
+        #[test]
+        fn valid_batches_build_and_self_verify(plan in plan_strategy()) {
+            let hasher = Hasher::new();
+            let kps = keypairs(plan.balances.len());
+
+            // Tree + independent mirror of expected balances/nonces.
+            let mut tree = Tree::new();
+            let mut expect: Vec<(u64, u64)> = plan.balances.iter().map(|b| (*b, 0u64)).collect();
+            for (i, kp) in kps.iter().enumerate() {
+                tree.set(i as u32, Account { pk_x: kp.pk_x(), balance: plan.balances[i], nonce: 0 });
+            }
+
+            // Sign the script against the tracked state, skipping unfundable steps.
+            let mut txs: Vec<SignedTx> = Vec::new();
+            for (k, (from, to, pct, wd)) in plan.script.iter().enumerate() {
+                let (from, to) = (*from, *to);
+                if !wd && from == to {
+                    continue; // self-transfer: recipient state would be stale
+                }
+                let (bal, nonce) = expect[from];
+                let amount = (bal / 100).saturating_mul(*pct as u64);
+                if amount == 0 {
+                    continue;
+                }
+                let to_field = if *wd { fr_from_u64(880_088) } else { kps[to].pk_x() };
+                let msg = tx_message(&hasher, kps[from].pk_x(), to_field, amount, nonce, *wd);
+                let sig = sign_with_nonce(&hasher, &kps[from], msg, Scalar::from(50_000 + k as u64));
+                txs.push(SignedTx {
+                    from_pk_x: kps[from].pk_x(),
+                    from_pk_y: kps[from].pk_y(),
+                    to_field,
+                    amount,
+                    nonce,
+                    is_withdraw: *wd,
+                    sig,
+                });
+                expect[from].0 -= amount;
+                expect[from].1 += 1;
+                if !wd {
+                    expect[to].0 += amount;
+                }
+            }
+
+            let w = build_batch(&hasher, &mut tree, 2, 8, &[], &txs).unwrap();
+
+            // DA re-fold (the validium recipe).
+            let mut acc = FR_ZERO;
+            for t in &txs {
+                let msg = tx_message(&hasher, t.from_pk_x, t.to_field, t.amount, t.nonce, t.is_withdraw);
+                acc = fold3(&hasher, DOMAIN_DA, acc, msg);
+            }
+            prop_assert_eq!(acc, w.da_commitment);
+
+            // Independent state application reproduces the root.
+            let mut check = Tree::new();
+            for (i, kp) in kps.iter().enumerate() {
+                check.set(i as u32, Account { pk_x: kp.pk_x(), balance: expect[i].0, nonce: expect[i].1 });
+            }
+            prop_assert_eq!(check.root(&hasher), w.new_root);
+        }
+
+        /// Single-field corruptions are rejected with the matching typed
+        /// error (admission must never let a circuit-rejectable tx through).
+        #[test]
+        fn corrupted_txs_get_typed_rejection(balance in 1_000u64..1_000_000_000, kind in 0usize..5) {
+            let hasher = Hasher::new();
+            let kps = keypairs(2);
+            let mut tree = Tree::new();
+            tree.set(0, Account { pk_x: kps[0].pk_x(), balance, nonce: 0 });
+            tree.set(1, Account { pk_x: kps[1].pk_x(), balance: 1, nonce: 0 });
+
+            let amount = balance / 2;
+            let msg = tx_message(&hasher, kps[0].pk_x(), kps[1].pk_x(), amount, 0, false);
+            let sig = sign_with_nonce(&hasher, &kps[0], msg, Scalar::from(77_777u64));
+            let mut tx = SignedTx {
+                from_pk_x: kps[0].pk_x(),
+                from_pk_y: kps[0].pk_y(),
+                to_field: kps[1].pk_x(),
+                amount,
+                nonce: 0,
+                is_withdraw: false,
+                sig,
+            };
+
+            let expected = match kind {
+                0 => { tx.nonce = 1; BuildError::NonceMismatch { tx_index: 0, expected: 0, got: 1 } }
+                1 => { tx.amount = balance + 1; BuildError::InsufficientBalance { tx_index: 0, balance, amount: balance + 1 } }
+                2 => { tx.sig.r_x[31] ^= 1; BuildError::BadSignature { tx_index: 0 } }
+                3 => { tx.from_pk_x = fr_from_u64(123_456); BuildError::SenderNotFound { tx_index: 0 } }
+                _ => {
+                    // Properly signed to an unknown recipient (an unsigned
+                    // to_field mutation is BadSignature — the sig binds it).
+                    tx.to_field = fr_from_u64(654_321);
+                    let msg = tx_message(&hasher, tx.from_pk_x, tx.to_field, tx.amount, tx.nonce, false);
+                    tx.sig = sign_with_nonce(&hasher, &kps[0], msg, Scalar::from(88_888u64));
+                    BuildError::RecipientNotFound { tx_index: 0 }
+                }
+            };
+            prop_assert_eq!(build_batch(&hasher, &mut tree, 2, 4, &[], &[tx]).unwrap_err(), expected);
+        }
+    }
+}

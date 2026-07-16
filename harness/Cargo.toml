@@ -20,3 +20,7 @@ ark-ec = "0.5"
 ark-ff = "0.5"
 rand = "0.8"
 stellar-strkey = "0.0.13"
+
+[dev-dependencies]
+# Property tests for build_batch (admission-rule space is combinatorial).
+proptest = "1"
