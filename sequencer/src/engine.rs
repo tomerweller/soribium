@@ -603,10 +603,14 @@ impl Engine {
         let blob: serde_json::Value = serde_json::from_str(&batch.blob_json)
             .map_err(|e| ApiError::Internal(e.to_string()))?;
 
+        // Replay on a clone: the live tree must not move unless the replay
+        // reproduces the exact root the proof landed (otherwise a corrupt
+        // blob/row would silently diverge the in-memory state).
         let (deposits, txs) = parse_blob(&blob).map_err(ApiError::Internal)?;
+        let mut work_tree = self.clone_tree();
         let witness = build_batch(
             &hasher,
-            &mut self.tree,
+            &mut work_tree,
             self.cfg.deposit_slots,
             self.cfg.tx_slots,
             &deposits,
@@ -616,6 +620,7 @@ impl Engine {
         if witness.new_root != batch.new_root {
             return Err(ApiError::Internal("replay root mismatch".into()));
         }
+        self.tree = work_tree;
 
         // Persist everything atomically.
         let tx = self.conn.unchecked_transaction()?;
@@ -668,7 +673,10 @@ impl Engine {
             "UPDATE deposits SET status = 'pending', batch_num = NULL WHERE batch_num = ?1 AND status = 'batching'",
             [batch_num as i64],
         )?;
-        db::batch_set_status(&tx, batch_num, "failed")?;
+        // Delete (not mark failed): the rebuild reuses this batch_num, and
+        // batches.batch_num is the PRIMARY KEY — a lingering row would make
+        // every future insert_batch fail and wedge batching permanently.
+        db::delete_batch(&tx, batch_num)?;
         tx.commit()?;
         Ok(())
     }
@@ -785,6 +793,7 @@ pub fn parse_blob(blob: &serde_json::Value) -> Result<(Vec<DepositRequest>, Vec<
 }
 
 /// Boot-time state loading + reconciliation against the chain.
+#[derive(Debug)]
 pub struct BootState {
     pub tree: Tree,
     pub chain_synced: bool,
@@ -853,7 +862,8 @@ pub fn load_and_reconcile(
                 [batch.batch_num as i64],
             )
             .map_err(|e| e.to_string())?;
-            db::batch_set_status(&tx, batch.batch_num, "failed").map_err(|e| e.to_string())?;
+            // Delete, not mark-failed: the batch_num gets reused (see fail_batch).
+            db::delete_batch(&tx, batch.batch_num).map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
         }
     }
@@ -974,5 +984,415 @@ mod tests {
             acc = hasher.hash(&[fr_from_u64(harness::batch::DOMAIN_DA), acc, msg]);
         }
         assert_eq!(fr_hex(&acc), fr_hex(&witness.da_commitment));
+    }
+}
+
+/// Engine integration tests: a real Engine over a private temp SQLite DB, no
+/// chain and no bb. `ObservedDeposits`/`ConfirmBatch`/`FailBatch` are ordinary
+/// commands, so the tests play watcher + batcher; record_proof validates
+/// shape (not soundness), so synthetic proofs suffice at this layer.
+#[cfg(test)]
+mod engine_tests {
+    use super::*;
+    use crate::config::Config;
+    use harness::batch::tx_message;
+    use harness::keys::{sign_with_nonce, Keypair};
+    use harness::poseidon::fr_from_u64;
+
+    fn kp(sk: u64) -> Keypair {
+        Keypair::from_sk(ark_grumpkin::Fr::from(sk))
+    }
+
+    fn engine(deposit_slots: usize, tx_slots: usize, max_wait: u64) -> Engine {
+        // Connection::open("") = private on-disk temp DB (WAL works, unlike :memory:).
+        let conn = db::open(std::path::Path::new("")).unwrap();
+        Engine {
+            cfg: Config {
+                rpc_url: String::new(),
+                network_passphrase: String::new(),
+                contract_id: "CTEST".into(),
+                token_id: String::new(),
+                sequencer_secret: String::new(),
+                sequencer_address: None,
+                db_path: "".into(),
+                listen_addr: String::new(),
+                batch_max_wait_secs: max_wait,
+                tick_secs: 1,
+                circuit_pkg: "batch_n4".into(),
+                deposit_slots,
+                tx_slots,
+            },
+            conn,
+            tree: Tree::new(),
+            chain_synced: true,
+        }
+    }
+
+    fn fund(e: &mut Engine, idx: u32, who: &Keypair, balance: u64) {
+        e.tree.set(idx, Account { pk_x: who.pk_x(), balance, nonce: 0 });
+    }
+
+    /// A correctly signed WireTx (transfer: `to` = recipient pk_x hex).
+    fn wire(from: &Keypair, to: &str, amount: u64, nonce: u64, wd: bool) -> WireTx {
+        let hasher = Hasher::new();
+        // Malformed withdrawal dests are rejected by submit_tx before the
+        // signature is even parsed — sign over a dummy field for those.
+        let to_field = if wd && to.len() == 56 {
+            address_to_field(&hasher, to)
+        } else if wd {
+            fr_from_u64(1)
+        } else {
+            parse_fr(to).unwrap()
+        };
+        let msg = tx_message(&hasher, from.pk_x(), to_field, amount, nonce, wd);
+        let sig = sign_with_nonce(&hasher, from, msg, ark_grumpkin::Fr::from(7_000 + nonce * 131 + amount));
+        let (lo, hi) = sig.s_limbs();
+        WireTx {
+            from_pk_x: fr_hex(&from.pk_x()),
+            from_pk_y: fr_hex(&from.pk_y()),
+            to: to.into(),
+            amount: amount.to_string(),
+            nonce,
+            is_withdraw: wd,
+            sig: WireSig {
+                r_x: fr_hex(&sig.r_x),
+                r_y: fr_hex(&sig.r_y),
+                s_lo: fr_hex(&lo),
+                s_hi: fr_hex(&hi),
+            },
+        }
+    }
+
+    fn transfer(from: &Keypair, to: &Keypair, amount: u64, nonce: u64) -> WireTx {
+        wire(from, &fr_hex(&to.pk_x()), amount, nonce, false)
+    }
+
+    #[test]
+    fn admission_matrix() {
+        let mut e = engine(2, 4, 3600);
+        let (alice, bob, carol) = (kp(101), kp(202), kp(303));
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+
+        // Valid transfer admitted as pending.
+        let r1 = e.submit_tx(transfer(&alice, &bob, 600_000, 0)).unwrap();
+        assert_eq!(r1.status, "pending");
+
+        // Idempotent resubmission: same (sender, nonce) returns the original id.
+        let r2 = e.submit_tx(transfer(&alice, &bob, 600_000, 0)).unwrap();
+        assert_eq!(r2.id, r1.id);
+
+        // Nonce gap: pending shadow makes the expected nonce 1.
+        match e.submit_tx(transfer(&alice, &bob, 1, 2)) {
+            Err(ApiError::NonceMismatch { expected }) => assert_eq!(expected, 1),
+            other => panic!("expected NonceMismatch, got {other:?}"),
+        }
+
+        // Balance shadow: 600k of 1M is already pending outbound.
+        match e.submit_tx(transfer(&alice, &bob, 500_000, 1)) {
+            Err(ApiError::InsufficientBalance { available }) => assert_eq!(available, 400_000),
+            other => panic!("expected InsufficientBalance, got {other:?}"),
+        }
+
+        // Unknown sender / unknown recipient.
+        assert!(matches!(
+            e.submit_tx(transfer(&carol, &alice, 1, 0)),
+            Err(ApiError::AccountUnknown)
+        ));
+        assert!(matches!(
+            e.submit_tx(transfer(&alice, &carol, 1, 1)),
+            Err(ApiError::RecipientUnknown)
+        ));
+
+        // ...unless a pending deposit will create the recipient.
+        e.observed_deposits(vec![(0, carol.pk_x(), 700_000)]).unwrap();
+        assert!(e.submit_tx(transfer(&alice, &carol, 100_000, 1)).is_ok());
+
+        // Withdrawal destination must be a 56-char G/C strkey.
+        assert!(matches!(
+            e.submit_tx(wire(&bob, "XNOTASTRKEY", 1, 0, true)),
+            Err(ApiError::BadField(_))
+        ));
+
+        // Tampered signature (amount changed after signing).
+        let mut bad = transfer(&bob, &alice, 1_000, 0);
+        bad.amount = "2000".into();
+        assert!(matches!(e.submit_tx(bad), Err(ApiError::BadSignature)));
+
+        // Zero amount.
+        assert!(matches!(
+            e.submit_tx(transfer(&bob, &alice, 0, 0)),
+            Err(ApiError::BadField(_))
+        ));
+    }
+
+    #[test]
+    fn eager_trigger_truth_table() {
+        let (alice, bob) = (kp(101), kp(202));
+
+        // Nothing pending -> no batch.
+        let mut e = engine(2, 4, 3600);
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+        assert!(e.try_build_batch().unwrap().is_none());
+
+        // One pending payment, young, deposits not full -> wait.
+        e.submit_tx(transfer(&alice, &bob, 1_000, 0)).unwrap();
+        assert!(e.try_build_batch().unwrap().is_none());
+
+        // >1 pending payments -> eager build.
+        e.submit_tx(transfer(&bob, &alice, 2_000, 0)).unwrap();
+        let job = e.try_build_batch().unwrap().expect("eager build");
+        assert_eq!(job.batch_num, 1);
+
+        // Inflight suppression: nothing builds while batch 1 is open.
+        e.submit_tx(transfer(&alice, &bob, 10, 1)).unwrap();
+        e.submit_tx(transfer(&bob, &alice, 20, 1)).unwrap();
+        assert!(e.try_build_batch().unwrap().is_none());
+
+        // Deposit queue full -> build (fresh engine, no payments).
+        let mut e = engine(2, 4, 3600);
+        e.observed_deposits(vec![(0, alice.pk_x(), 5)]).unwrap();
+        assert!(e.try_build_batch().unwrap().is_none()); // 1 of 2 slots
+        e.observed_deposits(vec![(1, bob.pk_x(), 6)]).unwrap();
+        assert!(e.try_build_batch().unwrap().is_some());
+
+        // Max-wait fallback: a lone deposit with the timer at zero.
+        let mut e = engine(2, 4, 0);
+        e.observed_deposits(vec![(0, alice.pk_x(), 5)]).unwrap();
+        assert!(e.try_build_batch().unwrap().is_some());
+
+        // Out-of-sync engine refuses to batch.
+        let mut e = engine(2, 4, 0);
+        e.chain_synced = false;
+        e.observed_deposits(vec![(0, alice.pk_x(), 5)]).unwrap();
+        assert!(e.try_build_batch().unwrap().is_none());
+    }
+
+    #[test]
+    fn eviction_rebuilds_without_bad_tx() {
+        let mut e = engine(2, 4, 0);
+        let (alice, bob) = (kp(101), kp(202));
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+
+        // Valid tx via admission; corrupt row injected directly (admission
+        // would refuse it — this simulates admission/build divergence).
+        let good = e.submit_tx(transfer(&alice, &bob, 1_000, 0)).unwrap();
+        let zero = FR_ZERO;
+        let bad_id = db::insert_mempool(
+            &e.conn,
+            &bob.pk_x(),
+            &bob.pk_y(),
+            &alice.pk_x(),
+            None,
+            2_000,
+            0,
+            false,
+            [&zero, &zero, &zero, &zero],
+        )
+        .unwrap();
+
+        let job = e.try_build_batch().unwrap().expect("builds after eviction");
+        assert_eq!(job.batch_num, 1);
+
+        // Bad row rejected with a reason; good row riding in the batch.
+        let status: (String, Option<String>) = e
+            .conn
+            .query_row(
+                "SELECT status, reject_reason FROM mempool WHERE id = ?1",
+                [bad_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(status.0, "rejected");
+        assert!(status.1.unwrap().contains("BadSignature"));
+        let good_status: String = e
+            .conn
+            .query_row("SELECT status FROM mempool WHERE id = ?1", [good.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(good_status, "batching");
+    }
+
+    /// Build a valid 160-byte public-input blob for an inflight batch row.
+    fn pis_for(e: &Engine, batch_num: u64) -> Vec<u8> {
+        let b = db::get_batch(&e.conn, batch_num).unwrap().unwrap();
+        let mut pis = Vec::with_capacity(160);
+        pis.extend_from_slice(&b.old_root);
+        pis.extend_from_slice(&b.new_root);
+        pis.extend_from_slice(&[0u8; 64]); // deposit/withdraw folds: not re-checked here
+        pis.extend_from_slice(&b.da_commitment);
+        pis
+    }
+
+    #[test]
+    fn pipeline_happy_path_to_confirm() {
+        let mut e = engine(2, 4, 0);
+        let (alice, bob, carol) = (kp(101), kp(202), kp(303));
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+
+        e.observed_deposits(vec![(0, carol.pk_x(), 700_000)]).unwrap();
+        e.submit_tx(transfer(&alice, &bob, 100_000, 0)).unwrap();
+
+        let job = e.try_build_batch().unwrap().expect("build");
+        assert_eq!(db::inflight_batch(&e.conn).unwrap().unwrap().status, "proving");
+
+        // Prove (synthetic), submit, land, confirm.
+        let envelope = e.record_proof(job.batch_num, vec![1u8; 14_592], pis_for(&e, 1)).unwrap();
+        assert!(envelope.contains("\"proof\""));
+        assert_eq!(db::inflight_batch(&e.conn).unwrap().unwrap().status, "proved");
+        e.mark_submitting(job.batch_num).unwrap();
+        db::batch_set_submitted(&e.conn, job.batch_num, Some("txhash")).unwrap();
+        e.confirm_batch(job.batch_num).unwrap();
+
+        // State advanced everywhere.
+        assert_eq!(e.confirmed_batch_num(), 1);
+        let hasher = Hasher::new();
+        assert_eq!(e.tree.get(0).unwrap().balance, 900_000);
+        assert_eq!(e.tree.get(0).unwrap().nonce, 1);
+        assert_eq!(e.tree.get(1).unwrap().balance, 600_000);
+        let carol_idx = e.tree.find(&carol.pk_x()).expect("carol created by deposit");
+        assert_eq!(e.tree.get(carol_idx).unwrap().balance, 700_000);
+        // Persisted leaves match the live tree root.
+        let boot = load_and_reconcile(&e.conn, &e.tree.root(&hasher), 1).unwrap();
+        assert!(boot.chain_synced);
+        // Terminal statuses + history.
+        assert!(db::inflight_batch(&e.conn).unwrap().is_none());
+        assert_eq!(db::deposits_count_pending(&e.conn).unwrap(), 0);
+        assert!(!db::history_for(&e.conn, &alice.pk_x(), 10).unwrap().is_empty());
+        // DA blob is served for the confirmed batch and re-parses.
+        let blob = e.get_da(1).unwrap();
+        assert!(parse_blob(&blob).is_ok());
+    }
+
+    #[test]
+    fn record_proof_rejects_bad_shapes() {
+        let mut e = engine(2, 4, 0);
+        let (alice, bob) = (kp(101), kp(202));
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+        e.submit_tx(transfer(&alice, &bob, 1_000, 0)).unwrap();
+        let job = e.try_build_batch().unwrap().unwrap();
+
+        let good_pis = pis_for(&e, job.batch_num);
+        // Wrong PI length.
+        assert!(e.record_proof(job.batch_num, vec![1u8; 14_592], vec![0u8; 159]).is_err());
+        // Tampered da_commitment word.
+        let mut bad = good_pis.clone();
+        bad[159] ^= 1;
+        assert!(e.record_proof(job.batch_num, vec![1u8; 14_592], bad).is_err());
+        // Wrong proof length.
+        assert!(e.record_proof(job.batch_num, vec![1u8; 14_591], good_pis.clone()).is_err());
+        // Correct shape lands.
+        assert!(e.record_proof(job.batch_num, vec![1u8; 14_592], good_pis).is_ok());
+    }
+
+    /// Regression (bug found by this suite): a corrupt batch row must not
+    /// move the live tree — replay happens on a clone.
+    #[test]
+    fn confirm_replay_mismatch_aborts_without_state_change() {
+        let mut e = engine(2, 4, 0);
+        let (alice, bob) = (kp(101), kp(202));
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+        e.submit_tx(transfer(&alice, &bob, 1_000, 0)).unwrap();
+        let job = e.try_build_batch().unwrap().unwrap();
+        e.record_proof(job.batch_num, vec![1u8; 14_592], pis_for(&e, 1)).unwrap();
+
+        // Corrupt the recorded new_root.
+        e.conn
+            .execute(
+                "UPDATE batches SET new_root = ?1 WHERE batch_num = 1",
+                [fr_hex(&fr_from_u64(999))],
+            )
+            .unwrap();
+
+        let hasher = Hasher::new();
+        let root_before = e.tree.root(&hasher);
+        assert!(e.confirm_batch(1).is_err());
+        assert_eq!(e.tree.root(&hasher), root_before, "live tree must not move");
+        assert_eq!(e.confirmed_batch_num(), 0);
+    }
+
+    /// Regression (bug found by this suite): after fail_batch the batch_num
+    /// is reused — the failed row must not wedge the next insert_batch.
+    #[test]
+    fn fail_batch_requeues_and_rebuild_succeeds() {
+        let mut e = engine(2, 4, 0);
+        let (alice, bob) = (kp(101), kp(202));
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+        e.submit_tx(transfer(&alice, &bob, 1_000, 0)).unwrap();
+        let job = e.try_build_batch().unwrap().unwrap();
+        assert_eq!(job.batch_num, 1);
+
+        e.fail_batch(1, "submit_batch returned error").unwrap();
+        assert!(db::inflight_batch(&e.conn).unwrap().is_none());
+        assert_eq!(db::mempool_count_pending(&e.conn).unwrap(), 1, "inputs requeued");
+
+        // The rebuild reuses batch_num 1 and must succeed.
+        let rebuilt = e.try_build_batch().unwrap().expect("rebuild after failure");
+        assert_eq!(rebuilt.batch_num, 1);
+    }
+
+    #[test]
+    fn boot_recovery_matrix() {
+        let hasher = Hasher::new();
+        let genesis = Tree::new().root(&hasher);
+        let (alice, bob) = (kp(101), kp(202));
+
+        // (a) Fresh DB, chain at genesis -> synced.
+        let e = engine(2, 4, 0);
+        assert!(load_and_reconcile(&e.conn, &genesis, 0).unwrap().chain_synced);
+
+        // (b) Crashed after landing: chain ahead by one, inflight matches.
+        let mut e = engine(2, 4, 0);
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+        for (i, a) in [(0u32, &alice), (1u32, &bob)] {
+            let acct = e.tree.get(i).unwrap();
+            db::upsert_leaf(&e.conn, i, &a.pk_x(), acct.balance, acct.nonce).unwrap();
+        }
+        e.submit_tx(transfer(&alice, &bob, 1_000, 0)).unwrap();
+        e.try_build_batch().unwrap().unwrap();
+        let landed_root = db::get_batch(&e.conn, 1).unwrap().unwrap().new_root;
+        let boot = load_and_reconcile(&e.conn, &landed_root, 1).unwrap();
+        assert!(boot.chain_synced, "finish-confirm path");
+
+        // (c) Chain ahead by one with NO matching inflight -> halt.
+        let e = engine(2, 4, 0);
+        assert!(load_and_reconcile(&e.conn, &fr_from_u64(9), 1)
+            .unwrap_err()
+            .contains("manual repair"));
+
+        // (d) Batch-number divergence -> halt.
+        let e = engine(2, 4, 0);
+        assert!(load_and_reconcile(&e.conn, &genesis, 5)
+            .unwrap_err()
+            .contains("someone else"));
+
+        // (e) Same batch num, different root -> halt.
+        let e = engine(2, 4, 0);
+        db::upsert_leaf(&e.conn, 0, &alice.pk_x(), 42, 0).unwrap();
+        assert!(load_and_reconcile(&e.conn, &genesis, 0)
+            .unwrap_err()
+            .contains("refusing to batch"));
+
+        // (f) Interrupted prove: batch deleted, inputs requeued, synced.
+        let mut e = engine(2, 4, 0);
+        fund(&mut e, 0, &alice, 1_000_000);
+        fund(&mut e, 1, &bob, 500_000);
+        for (i, a) in [(0u32, &alice), (1u32, &bob)] {
+            let acct = e.tree.get(i).unwrap();
+            db::upsert_leaf(&e.conn, i, &a.pk_x(), acct.balance, acct.nonce).unwrap();
+        }
+        let chain_root = e.tree.root(&hasher);
+        e.submit_tx(transfer(&alice, &bob, 1_000, 0)).unwrap();
+        e.try_build_batch().unwrap().unwrap(); // status 'proving', then "crash"
+        let boot = load_and_reconcile(&e.conn, &chain_root, 0).unwrap();
+        assert!(boot.chain_synced);
+        assert!(db::inflight_batch(&e.conn).unwrap().is_none(), "interrupted prove cleared");
+        assert_eq!(db::mempool_count_pending(&e.conn).unwrap(), 1, "inputs requeued");
     }
 }

@@ -16,7 +16,7 @@ pub struct Account {
     pub nonce: u64,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug)]
 pub struct Tree {
     /// Sparse leaf storage: index -> account. Empty slots hash to 0.
     pub leaves: std::collections::BTreeMap<u32, Account>,

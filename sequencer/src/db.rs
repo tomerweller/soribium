@@ -423,6 +423,14 @@ pub fn insert_batch(
     Ok(())
 }
 
+/// Remove a failed batch row so its batch_num (PRIMARY KEY) can be reused by
+/// the rebuild — a lingering 'failed' row would make the next insert_batch
+/// hit the UNIQUE constraint and wedge batching permanently.
+pub fn delete_batch(conn: &Connection, batch_num: u64) -> DbResult<()> {
+    conn.execute("DELETE FROM batches WHERE batch_num = ?1", [batch_num as i64])?;
+    Ok(())
+}
+
 pub fn get_batch(conn: &Connection, batch_num: u64) -> DbResult<Option<BatchRow>> {
     conn.query_row(
         &format!("SELECT {BATCH_COLS} FROM batches WHERE batch_num = ?1"),
