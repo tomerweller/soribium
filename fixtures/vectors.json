@@ -1,0 +1,45 @@
+{
+  "_generated": "cargo run -p harness -- vectors-json (do not edit; scripts/check_vectors.sh gates drift)",
+  "alice_pk_x": "0x1f2cbd75183a0cced1f2b4d1121a647b3b421baed26e463b2565b7972ae1a83c",
+  "bob_pk_x": "0x13d84dfee2bd99f26530c590cd8c011979328f1fa149234b19fea91510f94ebb",
+  "da_fold_0_42": "0x04753fb4f4ed6d02388a18f3b84e56dfc5b22dcd77ec8acf81ca9257bdfae3e3",
+  "demo": {
+    "da_commitment": "0x17cb89584c030ccb05e8e304a1ed5384918ca07e1794a506137090932883d3d3",
+    "deposit_hash": "0x1f6454197a8287b5e18bda5728f961ded3d87e2e81f8fcae826b373478823307",
+    "deposits": [
+      {
+        "amount": "1000",
+        "pk_x": "0x1f2cbd75183a0cced1f2b4d1121a647b3b421baed26e463b2565b7972ae1a83c"
+      },
+      {
+        "amount": "500",
+        "pk_x": "0x13d84dfee2bd99f26530c590cd8c011979328f1fa149234b19fea91510f94ebb"
+      }
+    ],
+    "new_root": "0x2f42c91985aad7b43e79305c478f9a9bc58522c2fc51ed4ab51fce88faf126be",
+    "old_root": "0x067243231eddf4222f3911defbba7705aff06ed45960b27f6f91319196ef97e1",
+    "withdraw_hash": "0x2feba35af40cfd8774f9593d6bc43cc5c43ff0f8e682294b747f84c072fc9ac3",
+    "withdrawals": [
+      {
+        "amount": "100",
+        "dest": "CADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQP5KR"
+      }
+    ]
+  },
+  "empty_root_d8": "0x067243231eddf4222f3911defbba7705aff06ed45960b27f6f91319196ef97e1",
+  "hash2_1_2": "0x038682aa1cb5ae4e0a3f13da432a95c77c5c111f6f030faf9cad641ce1ed7383",
+  "hash4_1_2_3_4": "0x130bf204a32cac1f0ace56c78b731aa3809f06df2731ebcf6b3464a15788b1b9",
+  "leaf_1234_100_0": "0x08e85e74234a7e239d871de3fbd4ffba29f93e4c5eab3e47a50abe2dad310ecc",
+  "pad": {
+    "pk_x": "0x0e602b9dd6a3e8d039a17f069add3f9c2a187a8f629a1de60a33a8067b9b2842",
+    "pk_y": "0x14cc8e83df1b5cbb163bd2c94005cb0707fe570def5a165242b1c1419cb014cb",
+    "r_x": "0x17e6386beac25fd11573fe37404e61d754a91ee7722dbd0c1c7fff157ed56573",
+    "r_y": "0x2be1ab9ccce96a8deeb82e85a35cc26804269db7ea57bc0e0afa3b835dfcff73",
+    "s_hi": "0x000000000000000000000000000000002ed87ed8cf30832f5f7b93ee4d5afd52",
+    "s_lo": "0x000000000000000000000000000000008312af54a4f4b07d782dc23d06ef43f2"
+  },
+  "root_leaf_at_5": "0x185afc939981ef9614d18623d87027a99db0117e16009e87db82b7bfab7865cb",
+  "tx_message_alice_bob_200_0": "0x0973c37bfd96f7e87beae95988fc04803fa331803136d13e922ab9ce67bc6955",
+  "wd_dest": "CADQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQOBYHA4DQP5KR",
+  "wd_dest_field": "0x0f722aee232fe9e789166ff315617ac7e96380c85e41abef6d8331408c96dc40"
+}

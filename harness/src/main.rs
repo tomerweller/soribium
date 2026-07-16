@@ -15,6 +15,8 @@ fn main() {
         "demo-batch-n64" => demo_batch_sized(8, 64, "batch_n64"),
         "demo-batch-n128" => demo_batch_sized(8, 128, "batch_n128"),
         "demo-batch-n256" => demo_batch_sized(8, 256, "batch_n256"),
+        // Single source of truth for cross-stack golden vectors.
+        "vectors-json" => vectors_json(),
         // Witness/signature vectors for the circuit tx_test.nr suite.
         "noir-tx-vectors" => {
             let path = "circuits/lib/src/tx_vectors.nr";
@@ -231,4 +233,97 @@ fn demo_batch_sized(d: usize, n: usize, pkg: &str) {
 
     let toml = prover::to_prover_toml(&witness);
     prover::prove(pkg, &toml).expect("prove pipeline failed");
+}
+
+/// Emit fixtures/vectors.json — the single source of truth for the golden
+/// vectors every stack pins: wallet vitest imports it directly, the contract
+/// equivalence test include_str!s it, and scripts/check_vectors.sh fails CI
+/// when the checked-in copy (or the Noir constants mirroring it) drifts.
+fn vectors_json() {
+    use harness::batch::{build_batch, make_signed_tx, DepositRequest};
+    use harness::keys::{pad_signature, Keypair};
+    use harness::l1::address_to_field;
+    use harness::tree::Tree as T;
+    use rand::SeedableRng;
+
+    let hasher = Hasher::new();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+
+    // Primitive vectors (mirrored as pinned constants in circuits/lib tests).
+    let hash2 = hasher.hash2(fr_from_u64(1), fr_from_u64(2));
+    let hash4 = hasher.hash(&[fr_from_u64(1), fr_from_u64(2), fr_from_u64(3), fr_from_u64(4)]);
+    let da_fold = hasher.hash(&[fr_from_u64(harness::batch::DOMAIN_DA), fr_from_u64(0), fr_from_u64(42)]);
+    let empty_root = T::new().root(&hasher);
+    let mut t5 = T::new();
+    t5.set(5, Account { pk_x: fr_from_u64(1234), balance: 100, nonce: 0 });
+    let leaf = T::leaf_value(&hasher, t5.get(5));
+    let root5 = t5.root(&hasher);
+
+    // Pad signature (sk=7, k=13, msg=42) — the PAD_* globals in tx.nr.
+    let pad_kp = Keypair::from_sk_raw(ark_grumpkin::Fr::from(7u64));
+    let pad_sig = pad_signature(&hasher);
+    let (pad_lo, pad_hi) = pad_sig.s_limbs();
+
+    // The demo scenario shared with fixtures/batch_n4 (meta.json).
+    let alice = Keypair::from_sk(ark_grumpkin::Fr::from(101u64));
+    let bob = Keypair::from_sk(ark_grumpkin::Fr::from(202u64));
+    let wd_dest = wd_addr();
+    let wd_field = address_to_field(&hasher, &wd_dest);
+    let mut tree = T::new();
+    let txs = [
+        make_signed_tx(&hasher, &alice, bob.pk_x(), 200, 0, false, &mut rng),
+        make_signed_tx(&hasher, &bob, wd_field, 100, 0, true, &mut rng),
+    ];
+    let w = build_batch(
+        &hasher,
+        &mut tree,
+        2,
+        4,
+        &[
+            DepositRequest { pk_x: alice.pk_x(), amount: 1000 },
+            DepositRequest { pk_x: bob.pk_x(), amount: 500 },
+        ],
+        &txs,
+    )
+    .expect("demo scenario must build");
+    let msg1 = harness::batch::tx_message(&hasher, alice.pk_x(), bob.pk_x(), 200, 0, false);
+
+    let json = serde_json::json!({
+        "_generated": "cargo run -p harness -- vectors-json (do not edit; scripts/check_vectors.sh gates drift)",
+        "hash2_1_2": to_hex(&hash2),
+        "hash4_1_2_3_4": to_hex(&hash4),
+        "da_fold_0_42": to_hex(&da_fold),
+        "empty_root_d8": to_hex(&empty_root),
+        "leaf_1234_100_0": to_hex(&leaf),
+        "root_leaf_at_5": to_hex(&root5),
+        "pad": {
+            "pk_x": to_hex(&pad_kp.pk_x()),
+            "pk_y": to_hex(&pad_kp.pk_y()),
+            "r_x": to_hex(&pad_sig.r_x),
+            "r_y": to_hex(&pad_sig.r_y),
+            "s_lo": to_hex(&pad_lo),
+            "s_hi": to_hex(&pad_hi),
+        },
+        "alice_pk_x": to_hex(&alice.pk_x()),
+        "bob_pk_x": to_hex(&bob.pk_x()),
+        "wd_dest": wd_dest,
+        "wd_dest_field": to_hex(&wd_field),
+        "tx_message_alice_bob_200_0": to_hex(&msg1),
+        "demo": {
+            "old_root": to_hex(&w.old_root),
+            "new_root": to_hex(&w.new_root),
+            "deposit_hash": to_hex(&w.deposit_hash),
+            "withdraw_hash": to_hex(&w.withdraw_hash),
+            "da_commitment": to_hex(&w.da_commitment),
+            "deposits": [
+                { "pk_x": to_hex(&alice.pk_x()), "amount": "1000" },
+                { "pk_x": to_hex(&bob.pk_x()), "amount": "500" },
+            ],
+            "withdrawals": [ { "dest": wd_dest, "amount": "100" } ],
+        },
+    });
+    let path = "fixtures/vectors.json";
+    std::fs::write(path, format!("{}\n", serde_json::to_string_pretty(&json).unwrap()))
+        .expect("write vectors.json");
+    println!("wrote {path}");
 }
