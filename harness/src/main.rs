@@ -15,6 +15,12 @@ fn main() {
         "demo-batch-n64" => demo_batch_sized(8, 64, "batch_n64"),
         "demo-batch-n128" => demo_batch_sized(8, 128, "batch_n128"),
         "demo-batch-n256" => demo_batch_sized(8, 256, "batch_n256"),
+        // Witness/signature vectors for the circuit tx_test.nr suite.
+        "noir-tx-vectors" => {
+            let path = "circuits/lib/src/tx_vectors.nr";
+            std::fs::write(path, harness::noir_vectors::emit()).expect("write tx_vectors.nr");
+            println!("wrote {path}");
+        }
         _ => {
             eprintln!("usage: harness vectors");
             std::process::exit(2);
