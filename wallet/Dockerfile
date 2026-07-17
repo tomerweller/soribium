@@ -4,8 +4,10 @@
 # pointing VITE_SEQUENCER_URL at the sequencer instead of using the proxy.
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install
+# npm ci: exact lockfile installs only (supply-chain, issue #2 L5) — a
+# missing/out-of-date lock fails the build instead of silently resolving.
+COPY package.json package-lock.json ./
+RUN npm ci
 COPY . .
 # The crypto vector gate runs in the build — a byte-mismatch fails the image.
 RUN npm test -- --run

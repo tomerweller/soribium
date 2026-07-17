@@ -1726,6 +1726,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "stellar-strkey 0.0.13",
  "thiserror 2.0.18",
  "tokio",
  "tower-http",

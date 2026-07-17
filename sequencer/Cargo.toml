@@ -26,6 +26,7 @@ thiserror = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hex = "0.4"
+stellar-strkey = "0.0.13"
 
 # wallet-sim test client only
 rand = "0.8"

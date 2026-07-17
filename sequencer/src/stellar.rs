@@ -32,30 +32,40 @@ pub trait StellarClient: Send + Sync {
     fn submit_batch(&self, envelope_json: &str) -> Result<(), ChainError>;
 }
 
+/// Identity name the secret is registered under at boot. The raw S… secret
+/// must never appear on a CLI argv (visible in `ps`/audit logs — issue #2
+/// H4); it reaches the CLI exactly once, via environment, at registration.
+const IDENTITY: &str = "soribium-seq-runtime";
+
 pub struct CliClient {
     pub rpc_url: String,
     pub network_passphrase: String,
     pub contract_id: String,
-    pub secret: String,
     pub sequencer_address: String,
 }
 
 impl CliClient {
     pub fn new(cfg: &crate::config::Config) -> Result<Self, ChainError> {
-        // Prefer the explicitly-provided public address (bootstrap knows it).
-        // Otherwise register a runtime identity from the secret — idempotently,
-        // tolerating a name that already exists from a prior boot — and read
-        // its address back.
+        // Register the runtime identity from the secret — idempotently
+        // (--overwrite tolerates a prior boot). The secret travels via env,
+        // never argv; every later invoke uses the identity NAME.
+        let o = Command::new("stellar")
+            .args(["keys", "add", IDENTITY, "--secret-key", "--overwrite"])
+            .env("SOROBAN_SECRET_KEY", &cfg.sequencer_secret)
+            .env("STELLAR_SECRET_KEY", &cfg.sequencer_secret)
+            .output()?;
+        if !o.status.success() {
+            return Err(ChainError::Cli(format!(
+                "cannot register sequencer identity: {}",
+                String::from_utf8_lossy(&o.stderr)
+            )));
+        }
+        // Prefer the explicitly-provided public address (bootstrap knows it);
+        // otherwise read it back from the registered identity.
         let sequencer_address = match &cfg.sequencer_address {
             Some(addr) if !addr.is_empty() => addr.clone(),
             _ => {
-                const NAME: &str = "soribium-seq-runtime";
-                let _ = Command::new("stellar")
-                    .args(["keys", "add", NAME, "--secret-key", "--overwrite"])
-                    .env("SOROBAN_SECRET_KEY", &cfg.sequencer_secret)
-                    .env("STELLAR_SECRET_KEY", &cfg.sequencer_secret)
-                    .output()?; // ignore status: --overwrite makes it idempotent
-                let o = Command::new("stellar").args(["keys", "address", NAME]).output()?;
+                let o = Command::new("stellar").args(["keys", "address", IDENTITY]).output()?;
                 if !o.status.success() {
                     return Err(ChainError::Cli(format!(
                         "cannot resolve sequencer address: {}",
@@ -69,7 +79,6 @@ impl CliClient {
             rpc_url: cfg.rpc_url.clone(),
             network_passphrase: cfg.network_passphrase.clone(),
             contract_id: cfg.contract_id.clone(),
-            secret: cfg.sequencer_secret.clone(),
             sequencer_address,
         })
     }
@@ -86,7 +95,7 @@ impl CliClient {
             "--network-passphrase",
             &self.network_passphrase,
             "--source-account",
-            &self.secret,
+            IDENTITY,
         ]);
         if !send {
             cmd.arg("--send=no");

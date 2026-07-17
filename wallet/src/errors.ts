@@ -26,6 +26,8 @@ export function friendlyError(error: unknown): string {
         return 'Signature check failed. Try again, or re-import your key.';
       case 'BAD_FIELD':
         return `Invalid input: ${error.message.replace(/^BAD_FIELD:\s*/, '')}`;
+      case 'RATE_LIMITED':
+        return 'The sequencer is busy right now — wait a minute and try again.';
       case 'SEQUENCER_UNREACHABLE':
         return "Can't reach the sequencer. Check your connection and try again in a moment.";
       case 'BAD_RESPONSE':

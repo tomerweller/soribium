@@ -4,18 +4,75 @@
 
 use crate::config::Config;
 use crate::engine::{ApiError, Command, WireTx};
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, Request, State};
 use axum::http::StatusCode;
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use std::sync::mpsc;
+use std::collections::HashMap;
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 
 #[derive(Clone)]
 pub struct AppState {
     pub engine: mpsc::Sender<Command>,
     pub cfg: Config,
+}
+
+/// Fixed-window per-IP limiter for the write path (issue #2 M4): POST /tx is
+/// the only endpoint that costs the operator prove time, so it gets a modest
+/// per-client budget. Reads stay unlimited (public sequencer by design).
+const TX_PER_MINUTE: u32 = 30;
+
+#[derive(Clone, Default)]
+struct RateLimiter {
+    windows: Arc<Mutex<HashMap<String, (Instant, u32)>>>,
+}
+
+impl RateLimiter {
+    fn allow(&self, key: &str) -> bool {
+        let mut map = self.windows.lock().unwrap();
+        let now = Instant::now();
+        // Opportunistic GC so the map can't grow unboundedly.
+        if map.len() > 10_000 {
+            map.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(60));
+        }
+        let entry = map.entry(key.to_string()).or_insert((now, 0));
+        if now.duration_since(entry.0) >= Duration::from_secs(60) {
+            *entry = (now, 0);
+        }
+        entry.1 += 1;
+        entry.1 <= TX_PER_MINUTE
+    }
+}
+
+/// Client identity for rate limiting: Fly's edge sets Fly-Client-IP; fall
+/// back to the first X-Forwarded-For hop, then a shared bucket.
+fn client_key(req: &Request) -> String {
+    let header = |name: &str| {
+        req.headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
+    };
+    header("fly-client-ip")
+        .or_else(|| header("x-forwarded-for"))
+        .unwrap_or_else(|| "direct".into())
+}
+
+async fn rate_limit(State(rl): State<RateLimiter>, req: Request, next: Next) -> Response {
+    if !rl.allow(&client_key(&req)) {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({
+                "error": { "code": "RATE_LIMITED", "message": "too many submissions; retry in a minute" }
+            })),
+        )
+            .into_response();
+    }
+    next.run(req).await
 }
 
 impl ApiError {
@@ -28,6 +85,7 @@ impl ApiError {
             ApiError::RecipientUnknown | ApiError::AccountUnknown | ApiError::NotFound => {
                 StatusCode::NOT_FOUND
             }
+            ApiError::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -40,6 +98,7 @@ impl ApiError {
             ApiError::RecipientUnknown => "RECIPIENT_UNKNOWN",
             ApiError::AccountUnknown => "ACCOUNT_UNKNOWN",
             ApiError::NotFound => "NOT_FOUND",
+            ApiError::RateLimited(_) => "RATE_LIMITED",
             ApiError::Internal(_) => "INTERNAL",
         }
     }
@@ -80,9 +139,13 @@ where
 
 pub fn router(state: AppState) -> Router {
     use tower_http::cors::CorsLayer;
+    let limiter = RateLimiter::default();
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
-        .route("/tx", post(post_tx))
+        .route(
+            "/tx",
+            post(post_tx).route_layer(middleware::from_fn_with_state(limiter, rate_limit)),
+        )
         .route("/account/{pk_x}", get(get_account))
         .route("/da/{batch_num}", get(get_da))
         .route("/status", get(get_status))
@@ -92,6 +155,8 @@ pub fn router(state: AppState) -> Router {
         // Permissive CORS is harmless behind the compose nginx /api proxy and
         // lets a Vercel-hosted build talk to the sequencer later.
         .layer(CorsLayer::permissive())
+        // A WireTx is <2KB; anything near the limit is abuse (issue #2 M4).
+        .layer(DefaultBodyLimit::max(32 * 1024))
         .with_state(state)
 }
 

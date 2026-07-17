@@ -90,6 +90,8 @@ pub enum ApiError {
     InsufficientBalance { available: u64 },
     #[error("RECIPIENT_UNKNOWN")]
     RecipientUnknown,
+    #[error("RATE_LIMITED: {0}")]
+    RateLimited(String),
     #[error("ACCOUNT_UNKNOWN")]
     AccountUnknown,
     #[error("NOT_FOUND")]
@@ -304,6 +306,14 @@ impl Engine {
         let hasher = Hasher::new();
         let bad = |field: &str| ApiError::BadField(field.to_string());
 
+        // Flood backstop (issue #2 M4): unbounded pending rows grow the DB
+        // and every admission/build scans them. Per-IP limiting lives in the
+        // HTTP layer; this caps the aggregate.
+        const MEMPOOL_MAX_PENDING: u64 = 5_000;
+        if db::mempool_count_pending(&self.conn)? >= MEMPOOL_MAX_PENDING {
+            return Err(ApiError::RateLimited("mempool is full; retry shortly".into()));
+        }
+
         let from_pk_x = parse_fr(&tx.from_pk_x).map_err(|_| bad("from_pk_x"))?;
         let from_pk_y = parse_fr(&tx.from_pk_y).map_err(|_| bad("from_pk_y"))?;
         let amount: u64 = tx.amount.parse().map_err(|_| bad("amount"))?;
@@ -317,8 +327,12 @@ impl Engine {
         }
 
         let (to_field, withdraw_dest) = if tx.is_withdraw {
-            if tx.to.len() != 56 || !(tx.to.starts_with('G') || tx.to.starts_with('C')) {
-                return Err(bad("to: expected 56-char strkey"));
+            // Full strkey validation (checksum, not just shape): a typo'd
+            // destination would exit funds to an unspendable L1 address, and
+            // the contract pays whatever address the proof binds (issue #2 M6).
+            match stellar_strkey::Strkey::from_string(&tx.to) {
+                Ok(stellar_strkey::Strkey::PublicKeyEd25519(_)) | Ok(stellar_strkey::Strkey::Contract(_)) => {}
+                _ => return Err(bad("to: expected a valid G… or C… strkey")),
             }
             (address_to_field(&hasher, &tx.to), Some(tx.to.clone()))
         } else {
@@ -1113,7 +1127,6 @@ mod engine_tests {
             e.submit_tx(wire(&bob, "XNOTASTRKEY", 1, 0, true)),
             Err(ApiError::BadField(_))
         ));
-
         // Tampered signature (amount changed after signing).
         let mut bad = transfer(&bob, &alice, 1_000, 0);
         bad.amount = "2000".into();
@@ -1122,6 +1135,20 @@ mod engine_tests {
         // Zero amount.
         assert!(matches!(
             e.submit_tx(transfer(&bob, &alice, 0, 0)),
+            Err(ApiError::BadField(_))
+        ));
+
+        // Strkey CHECKSUM validation, not just shape (issue #2 M6): one
+        // corrupted char in an otherwise well-formed G address = typo'd
+        // dest = funds exiting to an unspendable L1 account. (Last: the
+        // admitted withdrawal occupies bob's nonce 0.)
+        let valid_g = stellar_strkey::ed25519::PublicKey([7u8; 32]).to_string();
+        let mut corrupted = valid_g.clone().into_bytes();
+        corrupted[30] = if corrupted[30] == b'A' { b'B' } else { b'A' };
+        let corrupted = String::from_utf8(corrupted).unwrap();
+        assert!(e.submit_tx(wire(&bob, &valid_g, 1_000, 0, true)).is_ok());
+        assert!(matches!(
+            e.submit_tx(wire(&bob, &corrupted, 1_000, 1, true)),
             Err(ApiError::BadField(_))
         ));
     }
