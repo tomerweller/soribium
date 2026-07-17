@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rollups on Stellar — Soribium</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --panel: #141926;
+    --panel-2: #1a2133;
+    --border: #2a3450;
+    --text: #e8ebf2;
+    --muted: #9aa4bd;
+    --faint: #6b7590;
+    --gold: #fdda24;
+    --cyan: #5ad0e6;
+    --green: #6ee7a0;
+    --red: #f27979;
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+    font: 400 clamp(15px, 1.6vw, 21px)/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    overflow: hidden; }
+
+  .slide { position: absolute; inset: 0; display: none; flex-direction: column;
+    justify-content: center; padding: 4vh 7vw; overflow: hidden; }
+  .slide.active { display: flex; }
+
+  .kicker { font-family: var(--mono); font-size: 0.62em; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--gold); margin-bottom: 0.9em; }
+  h1 { font-size: 2.6em; line-height: 1.12; font-weight: 750; letter-spacing: -0.015em; }
+  h2 { font-size: 1.75em; line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 0.8em; }
+  .sub { color: var(--muted); font-size: 1.05em; margin-top: 1em; max-width: 34em; }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); }
+  .faint { color: var(--faint); }
+  .gold { color: var(--gold); }
+  .cyan { color: var(--cyan); }
+  .green { color: var(--green); }
+  code, .mono { font-family: var(--mono); font-size: 0.88em; }
+  code { background: var(--panel); border: 1px solid var(--border); border-radius: 5px; padding: 0.08em 0.35em; }
+  ul { list-style: none; }
+  ul.points > li { padding-left: 1.3em; position: relative; margin: 0.55em 0; }
+  ul.points > li::before { content: "▸"; position: absolute; left: 0; color: var(--gold); }
+  .small { font-size: 0.78em; }
+  .tiny { font-size: 0.64em; }
+  .footnote { position: absolute; left: 7vw; right: 7vw; bottom: 4vh;
+    color: var(--faint); font-size: 0.6em; line-height: 1.6; }
+  .takeaway { margin-top: 1.4em; padding: 0.8em 1.1em; border-left: 3px solid var(--gold);
+    background: var(--panel); border-radius: 0 8px 8px 0; font-size: 1.02em; }
+
+  /* stat cards */
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1em; margin: 1.2em 0; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1em 1.1em; }
+  .card .num { font-family: var(--mono); font-size: 1.7em; font-weight: 700; color: var(--gold); line-height: 1.1; }
+  .card .lbl { color: var(--muted); font-size: 0.72em; margin-top: 0.5em; line-height: 1.35; }
+
+  /* tables */
+  table { border-collapse: collapse; font-family: var(--mono); font-size: 0.74em; margin: 1em 0; }
+  th, td { padding: 0.45em 1.1em; text-align: right; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.82em; letter-spacing: 0.06em; }
+  th:first-child, td:first-child { text-align: left; }
+  td { color: var(--text); }
+  tr.hl td { color: var(--gold); font-weight: 700; }
+
+  /* two-column layout */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 2.5em; align-items: start; }
+
+  /* 2x2 taxonomy */
+  .quad { display: grid; grid-template-columns: 8em 1fr 1fr; grid-template-rows: auto 1fr 1fr;
+    gap: 0.6em; margin-top: 0.5em; flex: 0 1 auto; }
+  .quad .axis { display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; color: var(--muted); font-size: 0.72em; line-height: 1.35; padding: 0.3em; }
+  .quad .cell { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 0.9em 1em; font-size: 0.82em; }
+  .quad .cell b { display: block; margin-bottom: 0.3em; font-size: 1.05em; }
+  .quad .cell .ex { color: var(--muted); font-size: 0.85em; line-height: 1.45; }
+  .quad .cell.us { border-color: var(--gold); background: #201d10; }
+
+  /* diagram boxes */
+  .boxes { display: grid; gap: 0.9em; margin: 1.2em 0; align-items: stretch; }
+  .box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 0.9em 1em; }
+  .box h3 { font-size: 0.95em; margin-bottom: 0.35em; }
+  .box .d { color: var(--muted); font-size: 0.74em; line-height: 1.5; }
+  .box .path { font-family: var(--mono); font-size: 0.62em; color: var(--faint); margin-top: 0.5em; }
+  .arrow { display: flex; align-items: center; justify-content: center; color: var(--gold);
+    font-size: 1.3em; font-family: var(--mono); }
+
+  /* flow steps */
+  .flow { counter-reset: step; margin: 1em 0; }
+  .flow li { counter-increment: step; display: grid; grid-template-columns: 2.2em 10em 1fr;
+    gap: 0.9em; align-items: baseline; padding: 0.7em 0; border-bottom: 1px solid var(--border); font-size: 0.9em; }
+  .flow li::before { content: counter(step); font-family: var(--mono); font-weight: 700;
+    color: var(--bg); background: var(--gold); border-radius: 50%; width: 1.5em; height: 1.5em;
+    display: inline-flex; align-items: center; justify-content: center; font-size: 0.85em; }
+  .flow li b { color: var(--cyan); }
+  .flow li span { color: var(--muted); font-size: 0.9em; }
+
+  .bigline { font-size: 1.9em; font-weight: 700; line-height: 1.3; max-width: 22em; }
+  .bigline em { color: var(--gold); font-style: normal; }
+
+  /* sequence diagram */
+  .seq { width: 100%; max-height: 66vh; height: auto; display: block; margin-top: 0.4em; }
+  .seq .sq-life { stroke: #2a3450; stroke-width: 1.5; stroke-dasharray: 5 6; }
+  .seq .sq-head { fill: var(--panel); stroke: var(--border); stroke-width: 1.5; }
+  .seq .sq-self { fill: var(--panel); stroke: var(--border); stroke-width: 1.5; }
+  .seq .sq-name { font: 700 17px -apple-system, "Segoe UI", sans-serif; fill: var(--text); }
+  .seq .sq-sub { font: 400 11.5px -apple-system, "Segoe UI", sans-serif; fill: var(--faint); }
+  .seq .sq-lbl { font: 400 13.5px -apple-system, "Segoe UI", sans-serif; fill: var(--text); }
+  .seq .sq-note { font: 400 12px -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
+  .seq .sq-mono { font: 400 12.5px "SF Mono", Menlo, Consolas, monospace; fill: var(--cyan); }
+  .seq .sq-tb { font: 600 11px "SF Mono", Menlo, monospace; fill: var(--gold); opacity: 0.75;
+    letter-spacing: 0.08em; text-transform: uppercase; }
+  .seq .sq-msg { stroke: #e8ebf2; stroke-width: 1.6; }
+  .seq .sq-msg-f { stroke: #6b7590; stroke-width: 1.4; stroke-dasharray: 6 5; }
+
+  /* merkle tree */
+  .seq .ed { stroke: #2a3450; stroke-width: 1.5; }
+  .seq .ed-hl { stroke: var(--gold); stroke-width: 2.2; }
+  .seq .nd { fill: var(--panel); stroke: var(--border); stroke-width: 1.5; }
+  .seq .nd-hl { fill: #201d10; stroke: var(--gold); stroke-width: 2; }
+  .seq .nd-sib { fill: var(--panel); stroke: var(--cyan); stroke-width: 2; }
+
+  /* chrome */
+  #progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--gold); width: 0; transition: width 0.2s; z-index: 10; }
+  #counter { position: fixed; bottom: 14px; right: 18px; font-family: var(--mono);
+    font-size: 12px; color: var(--faint); z-index: 10; }
+  #hint { position: fixed; bottom: 14px; left: 18px; font-family: var(--mono);
+    font-size: 12px; color: var(--faint); z-index: 10; }
+
+  @media print {
+    html, body { overflow: visible; height: auto; }
+    .slide { position: relative; display: flex !important; page-break-after: always; height: 100vh; }
+    #progress, #counter, #hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- 1 · Title -->
+<section class="slide">
+  <div class="kicker">Internal eng talk · July 2026</div>
+  <h1>Rollups on Stellar</h1>
+  <h1 class="gold">Soribium as a case study</h1>
+  <p class="sub">What a rollup is, why the pattern is working on Ethereum,
+    and what it took to run a ZK validium end-to-end on Soroban — with real
+    circuits, real proofs, and real testnet batches.</p>
+  <p class="footnote">Tomer Weller · github.com/tomerweller/stellar-zk-rollup</p>
+</section>
+
+<!-- 2 · Motivation: Lighter -->
+<section class="slide">
+  <div class="kicker">Motivation</div>
+  <h2>Lighter: an app-specific ZK rollup is a top-3 exchange</h2>
+  <p class="muted small">zkLighter is a perp orderbook DEX on Ethereum. Not a zkEVM —
+    custom circuits (Plonky2-based) prove <em>exchange logic</em>: matching, margin,
+    liquidations, even price-time priority. Every state transition is verified on Ethereum.</p>
+  <div class="cards">
+    <div class="card"><div class="num">$1.63T</div><div class="lbl">cumulative trading volume since launch (May&nbsp;2026)</div></div>
+    <div class="card"><div class="num">$232B</div><div class="lbl">peak 30-day volume, Dec&nbsp;2025 — briefly out-trading Hyperliquid</div></div>
+    <div class="card"><div class="num">$880M</div><div class="lbl">value secured on L2Beat (Jul&nbsp;2026) · #3 perp DEX by volume</div></div>
+    <div class="card"><div class="num">$1.5B</div><div class="lbl">valuation — $68M round led by Founders&nbsp;Fund + Ribbit, Nov&nbsp;2025</div></div>
+  </div>
+  <ul class="points small">
+    <li>Steady state after airdrop incentives ended: ~$39B/30d — still a real, top-3 business, and the defensible number.</li>
+    <li>Went from invite-only beta to top-3 perp DEX in under a year; Robinhood Chain integration shipped July 2026.</li>
+    <li>Vendor claims (label as such): tens of thousands of orders/sec, ms latency, zero retail fees.</li>
+  </ul>
+  <div class="takeaway">App-specific ZK rollups are a proven production pattern.
+    Lighter proves <b>exchange logic</b> in circuits — Soribium proves <b>payments</b>.</div>
+  <p class="footnote">Sources: L2Beat (TVS, Jul 2026) · Datawallet snapshot May 25 2026 (volumes) ·
+    CoinDesk / Fortune Nov 11 2025 (funding) · lighter.xyz docs (perf claims).
+    Dec 2025 peak was heavily airdrop-farmed (−83% after) — cite with that caveat.</p>
+</section>
+
+<!-- 3 · What is a rollup -->
+<section class="slide">
+  <div class="kicker">Definitions</div>
+  <h2>What is a rollup?</h2>
+  <p class="bigline" style="font-size:1.4em">Execute transactions <em>off-chain</em>,
+    settle them <em>on-chain</em>.</p>
+  <div class="boxes" style="grid-template-columns: 1fr 3em 1fr; margin-top:1.5em">
+    <div class="box">
+      <h3 class="cyan">Off-chain — the rollup operator</h3>
+      <div class="d">Executes many transactions against its own copy of the state.
+        Fast, cheap, flexible — and by itself, completely untrusted.</div>
+    </div>
+    <div class="arrow">⇄</div>
+    <div class="box">
+      <h3 class="gold">On-chain — the contract</h3>
+      <div class="d">Escrows all deposited funds and stores <b>one 32-byte state root</b> —
+        a Merkle commitment to every account. Advancing the root requires convincing the contract
+        the transition was valid.</div>
+    </div>
+  </div>
+  <ul class="points">
+    <li>All rollup state — every account, every balance — is summarized by one number on chain.</li>
+    <li>Users enter via on-chain deposits and leave via on-chain withdrawals; the contract is the custodian, not the operator.</li>
+    <li>The whole design question: <b>how does the contract know a proposed new root is honest?</b></li>
+  </ul>
+</section>
+
+<!-- 4 · Taxonomy -->
+<section class="slide">
+  <div class="kicker">Definitions</div>
+  <h2>The taxonomy: two independent axes</h2>
+  <div class="quad">
+    <div class="axis"></div>
+    <div class="axis"><b>Data on-chain</b><br>anyone can reconstruct state</div>
+    <div class="axis"><b>Data off-chain</b><br>operator serves the data</div>
+    <div class="axis"><b>Optimistic</b><br>assume valid, fraud-proof challenge window (~7 days)</div>
+    <div class="cell"><b>Optimistic rollup</b><div class="ex">Arbitrum, Base, OP Mainnet.
+      Cheap to prove (nothing, usually), slow to exit.</div></div>
+    <div class="cell"><b>"Optimium" / Plasma</b><div class="ex">Rare in practice —
+      fraud proofs need the data to be available to construct the challenge.</div></div>
+    <div class="axis"><b>ZK</b><br>validity proof checked before the root moves</div>
+    <div class="cell"><b>ZK rollup</b><div class="ex">Lighter, zkSync Era, Scroll, Starknet.
+      Instant cryptographic finality; data posted as blobs (Lighter: ~65 MiB/day).</div></div>
+    <div class="cell us"><b>ZK validium ← Soribium</b><div class="ex">StarkEx apps (ImmutableX),
+      Soribium. Proofs guarantee correctness; operator is trusted to serve data.</div></div>
+  </div>
+  <ul class="points small" style="margin-top:1em">
+    <li><b>Axis 1 — how you prove:</b> optimistic = anyone can challenge a bad root during a window;
+      ZK = a validity proof is verified before the root advances. Nothing invalid ever lands.</li>
+    <li><b>Axis 2 — where data lives:</b> determines who can reconstruct state and exit without the operator's help.</li>
+  </ul>
+</section>
+
+<!-- 5 · Why now on Stellar -->
+<section class="slide">
+  <div class="kicker">Why now</div>
+  <h2>Protocol 25/26 made this possible on Stellar</h2>
+  <ul class="points">
+    <li><b>Protocol 25 "X-Ray"</b> <span class="faint small">(Jan 2026)</span> — native <b>BN254 curve ops + pairing</b>
+      (CAP-0074) and <b>Poseidon2 hashing</b> (CAP-0075) as host functions: the exact primitives an UltraHonk verifier needs.</li>
+    <li><b>SLP-0004</b> <span class="faint small">(a week later)</span> — a validator-voted <em>limits</em> upgrade
+      (not a protocol release) raised per-tx CPU <b>100M → 400M instructions</b>, motivated by the new ZK host functions.</li>
+    <li><b>Protocol 26 "Yardstick"</b> <span class="faint small">(May 2026)</span> — CAP-0080 added G1
+      <b>multi-scalar multiplication, Fr field arithmetic, and curve-membership checks</b>, cutting the Noir/UltraHonk
+      verifier <b>~5×</b>: 558M → 112M instructions (and the contract 130&nbsp;KB → 15&nbsp;KB). Before this,
+      verification didn't fit even under the raised cap.</li>
+    <li>No precompile hacks, no custom protocol changes: the verifier is a normal Soroban contract
+      (Nethermind's <code>rs-soroban-ultrahonk</code>).</li>
+  </ul>
+  <div class="cards" style="grid-template-columns: repeat(3, 1fr)">
+    <div class="card"><div class="num">90.5M</div><div class="lbl">instructions to verify Soribium's batch_n16 UltraHonk proof on-chain</div></div>
+    <div class="card"><div class="num">22.6%</div><div class="lbl">of the 400M cap — verification has huge headroom</div></div>
+    <div class="card"><div class="num">~+2M</div><div class="lbl">instructions per circuit-size doubling — verification cost is logarithmic</div></div>
+  </div>
+  <div class="takeaway">Off-chain, proving got fast (Noir + Barretenberg). On-chain, verification got native and cheap.
+    The two curves crossed in the first half of 2026 — that's the moment Soribium is built on.</div>
+  <p class="footnote">CAP-0074/0075 (Protocol 25, mainnet Jan 22 2026) · SLP-0004 (settings vote, ~Jan 29 2026) ·
+    CAP-0080 (Protocol 26, mainnet May 6 2026); 5× figure from the CAP-0080 discussion's UltraHonk benchmark.</p>
+</section>
+
+<!-- 6 · Soribium at a glance -->
+<section class="slide">
+  <div class="kicker">Case study</div>
+  <h2>Soribium at a glance</h2>
+  <p class="muted small">A payments ZK validium on Stellar testnet. One SEP-41 token (native XLM),
+    rollup-native keys, one UltraHonk proof per batch.</p>
+  <div class="boxes" style="grid-template-columns: 1fr 1fr; margin-top:1em">
+    <div class="box"><h3>Circuits — Noir</h3>
+      <div class="d">Batch state-transition circuit: Poseidon2 Merkle tree + Grumpkin Schnorr signatures.
+        Deployed size <code>batch_n16</code> (4 deposits + 16 payments per batch).</div>
+      <div class="path">circuits/</div></div>
+    <div class="box"><h3>Prover — Barretenberg</h3>
+      <div class="d"><code>bb</code> generates UltraHonk proofs (keccak transcript, on-chain compatible).
+        Sub-second for the deployed size on a laptop.</div>
+      <div class="path">harness/ (witness builder + prover driver)</div></div>
+    <div class="box"><h3>Contract — Soroban</h3>
+      <div class="d">SEP-41 custody, FIFO deposit queue, <code>submit_batch</code> verifies the proof
+        and advances the root atomically. Verification via native BN254 host functions.</div>
+      <div class="path">contracts/rollup/</div></div>
+    <div class="box"><h3>Sequencer + wallet</h3>
+      <div class="d">axum backend: mempool, deposit watcher, batch/prove/submit pipeline, DA endpoint.
+        React browser wallet with client-verified balances.</div>
+      <div class="path">sequencer/ · wallet/</div></div>
+  </div>
+  <p class="small muted">Live on testnet: wallet at <span class="mono cyan">blob.tomerweller.com/soribium</span>,
+    sequencer at <span class="mono cyan">soribium.fly.dev</span>. Research prototype — unaudited, testnet only.</p>
+</section>
+
+<!-- 7 · Components + flow: sequence diagram -->
+<section class="slide">
+  <div class="kicker">Architecture</div>
+  <h2>Three machines, one trust boundary — a payment's journey</h2>
+  <svg class="seq" viewBox="0 0 1000 480" role="img" aria-label="Sequence diagram: wallets, sequencer, contract">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#e8ebf2"/>
+      </marker>
+    </defs>
+
+    <!-- trust boundary -->
+    <line x1="672" y1="0" x2="672" y2="480" stroke="#fdda24" stroke-opacity="0.3" stroke-dasharray="4 7"/>
+    <text x="682" y="70" class="sq-tb">trust boundary</text>
+
+    <!-- lifelines -->
+    <line x1="160" y1="54" x2="160" y2="466" class="sq-life"/>
+    <line x1="500" y1="54" x2="500" y2="466" class="sq-life"/>
+    <line x1="842" y1="54" x2="842" y2="466" class="sq-life"/>
+
+    <!-- headers -->
+    <rect x="52" y="8" width="216" height="46" rx="9" class="sq-head"/>
+    <text x="160" y="28" text-anchor="middle" class="sq-name" fill="#5ad0e6">Browser wallets</text>
+    <text x="160" y="45" text-anchor="middle" class="sq-sub">many users · rollup keys (Grumpkin)</text>
+    <rect x="392" y="8" width="216" height="46" rx="9" class="sq-head"/>
+    <text x="500" y="28" text-anchor="middle" class="sq-name">Sequencer</text>
+    <text x="500" y="45" text-anchor="middle" class="sq-sub">untrusted for correctness</text>
+    <rect x="734" y="8" width="216" height="46" rx="9" class="sq-head" stroke="#fdda24"/>
+    <text x="842" y="28" text-anchor="middle" class="sq-name" fill="#fdda24">Soroban contract</text>
+    <text x="842" y="45" text-anchor="middle" class="sq-sub">trust anchor · custody + root</text>
+
+    <!-- 1 payments (xN) -->
+    <text x="330" y="96" text-anchor="middle" class="sq-lbl">① users sign payments with their rollup keys → mempool</text>
+    <line x1="160" y1="106" x2="494" y2="106" class="sq-msg" marker-end="url(#arr)"/>
+    <line x1="160" y1="130" x2="494" y2="130" class="sq-msg" marker-end="url(#arr)"/>
+    <line x1="160" y1="154" x2="494" y2="154" class="sq-msg" marker-end="url(#arr)"/>
+    <text x="330" y="176" text-anchor="middle" class="sq-note">payment, payment, payment… — off-chain: no Stellar involvement, no fees</text>
+
+    <!-- 2 batch + prove (self) -->
+    <rect x="346" y="212" width="308" height="76" rx="9" class="sq-self"/>
+    <text x="500" y="236" text-anchor="middle" class="sq-lbl">② tick (~5s): batch all pending payments,</text>
+    <text x="500" y="255" text-anchor="middle" class="sq-lbl">build witness, bb-prove old_root → new_root</text>
+    <text x="500" y="276" text-anchor="middle" class="sq-note">one proof for the whole batch</text>
+
+    <!-- 3 submit_batch -->
+    <text x="510" y="332" class="sq-mono">③ submit_batch(new_root, …, proof)</text>
+    <text x="510" y="351" class="sq-note">one Stellar tx — the proof is 14.6 KB, whether it covers 4 payments or 256</text>
+    <line x1="500" y1="360" x2="836" y2="360" class="sq-msg" marker-end="url(#arr)"/>
+
+    <!-- 4 verify (self) -->
+    <rect x="706" y="384" width="256" height="58" rx="9" class="sq-self" stroke="#fdda24" stroke-opacity="0.5"/>
+    <text x="834" y="408" text-anchor="middle" class="sq-lbl">④ verify UltraHonk proof</text>
+    <text x="834" y="427" text-anchor="middle" class="sq-lbl">advance root: old_root → new_root</text>
+  </svg>
+  <ul class="points small" style="margin-top:0.7em">
+    <li>Everything left of the trust boundary can lie, crash, or disappear — <b>funds stay safe</b>:
+      only a valid proof can advance the root.</li>
+    <li>Batching is the whole business model: N payments amortize one ~fixed proof and one ~0.12 XLM Stellar transaction.</li>
+    <li>Deposits, withdrawals, and data availability ride the same loop — details on the next slides.</li>
+  </ul>
+</section>
+
+<!-- 8 · State tree -->
+<section class="slide">
+  <div class="kicker">The ZK part</div>
+  <h2>The state root, from the bottom up</h2>
+  <div class="cols">
+    <div>
+      <svg class="seq" viewBox="0 0 520 410" role="img" aria-label="Merkle tree of account leaves up to a single root">
+        <!-- edges -->
+        <line x1="250" y1="40" x2="130" y2="115" class="ed"/>
+        <line x1="130" y1="115" x2="70"  y2="190" class="ed"/>
+        <line x1="130" y1="115" x2="190" y2="190" class="ed"/>
+        <line x1="370" y1="115" x2="430" y2="190" class="ed"/>
+        <line x1="70"  y1="190" x2="40"  y2="265" class="ed"/>
+        <line x1="70"  y1="190" x2="100" y2="265" class="ed"/>
+        <line x1="190" y1="190" x2="160" y2="265" class="ed"/>
+        <line x1="190" y1="190" x2="220" y2="265" class="ed"/>
+        <line x1="310" y1="190" x2="280" y2="265" class="ed"/>
+        <line x1="430" y1="190" x2="400" y2="265" class="ed"/>
+        <line x1="430" y1="190" x2="460" y2="265" class="ed"/>
+        <!-- highlighted path: leaf -> root -->
+        <line x1="340" y1="265" x2="310" y2="190" class="ed-hl"/>
+        <line x1="310" y1="190" x2="370" y2="115" class="ed-hl"/>
+        <line x1="370" y1="115" x2="250" y2="40"  class="ed-hl"/>
+        <!-- nodes -->
+        <circle cx="250" cy="40"  r="15" class="nd-hl"/>
+        <circle cx="130" cy="115" r="13" class="nd-sib"/>
+        <circle cx="370" cy="115" r="13" class="nd-hl"/>
+        <circle cx="70"  cy="190" r="13" class="nd"/>
+        <circle cx="190" cy="190" r="13" class="nd"/>
+        <circle cx="310" cy="190" r="13" class="nd-hl"/>
+        <circle cx="430" cy="190" r="13" class="nd-sib"/>
+        <circle cx="40"  cy="265" r="12" class="nd"/>
+        <circle cx="100" cy="265" r="12" class="nd"/>
+        <circle cx="160" cy="265" r="12" class="nd"/>
+        <circle cx="220" cy="265" r="12" class="nd"/>
+        <circle cx="280" cy="265" r="12" class="nd-sib"/>
+        <circle cx="340" cy="265" r="12" class="nd-hl"/>
+        <circle cx="400" cy="265" r="12" class="nd"/>
+        <circle cx="460" cy="265" r="12" class="nd"/>
+        <!-- labels -->
+        <text x="278" y="30" class="sq-lbl">state root — the one number on-chain</text>
+        <text x="340" y="296" text-anchor="middle" class="sq-lbl" fill="#fdda24">your account</text>
+        <text x="250" y="330" text-anchor="middle" class="sq-mono">leaf = Poseidon2(pk_x, balance, nonce)</text>
+        <text x="250" y="350" text-anchor="middle" class="sq-mono">node = Poseidon2(left, right)</text>
+        <circle cx="80" cy="381" r="7" class="nd-hl"/>
+        <text x="94" y="385" class="sq-note">recomputed on update</text>
+        <circle cx="270" cy="381" r="7" class="nd-sib"/>
+        <text x="284" y="385" class="sq-note">siblings = the balance proof</text>
+        <text x="250" y="407" text-anchor="middle" class="sq-note">drawn depth 3 — Soribium runs depth 8: 256 accounts</text>
+      </svg>
+    </div>
+    <div>
+      <ul class="points">
+        <li>Every account is a leaf: <b>a rollup public key, a balance, a nonce</b>, hashed together.
+          Empty slots are 0.</li>
+        <li>Hash pairwise up 8 levels → one 32-byte root. <b>That root is the only state
+          the contract stores.</b></li>
+        <li>Any balance is provable with just <b>8 sibling hashes</b> — the wallet checks its own
+          balance against the on-chain root exactly this way: verify, never trust.</li>
+        <li>A payment touches two leaves (sender −amount, recipient +amount): recompute two paths
+          → a <b>new root</b>. That recomputation is what the circuit does, payment after payment — next slide.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 9 · What the proof proves -->
+<section class="slide">
+  <div class="kicker">The ZK part</div>
+  <h2>What the proof actually proves</h2>
+  <div class="cols">
+    <div>
+      <ul class="points">
+        <li>State = a <b>depth-8 Poseidon2 Merkle tree</b> (256 accounts).
+          Leaf = <code class="tiny">Poseidon2(DOMAIN, pk_x, balance, nonce)</code>.</li>
+        <li>Per payment, the circuit enforces: a valid <b>Grumpkin Schnorr signature</b>,
+          balance ≥ amount (range-checked to 2⁶⁴), nonce increment, and <b>two Merkle updates</b>
+          (sender, recipient) — ≈16.4K gates per payment.</li>
+        <li>Deposits and withdrawals are folded into running hashes the contract independently recomputes.</li>
+      </ul>
+      <div class="takeaway small">The contract never sees a single transaction.
+        It sees five field elements and a proof that <em>some valid set of signed transactions</em>
+        transforms old_root into new_root.</div>
+    </div>
+    <div>
+      <div class="box">
+        <h3>5 public inputs</h3>
+        <div class="d mono" style="line-height:2">
+          old_root<br>
+          new_root<br>
+          deposit_hash&nbsp;&nbsp;<span class="faint">// FIFO queue prefix consumed</span><br>
+          withdraw_hash&nbsp;<span class="faint">// on-chain payouts authorized</span><br>
+          da_commitment&nbsp;<span class="faint">// binds the off-chain tx blob</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 · Why circuit-friendly crypto -->
+<section class="slide">
+  <div class="kicker">The ZK part</div>
+  <h2>Why Poseidon and Grumpkin — not SHA-256 and Ed25519?</h2>
+  <p class="muted small">A circuit doesn't execute instructions — it checks equations over a prime field
+    (BN254's scalar field, here). Crypto that's already field math is nearly free; crypto built
+    for CPUs must be emulated bit by bit.</p>
+  <table style="font-size:0.82em">
+    <tr><th>in-circuit cost</th><th>built for CPUs</th><th>built for circuits</th></tr>
+    <tr><td>hash</td>
+      <td>SHA-256 — <b>tens of thousands</b> of gates<br><span class="faint">bitwise AND/XOR/rotate, bit by bit</span></td>
+      <td class="green">Poseidon2 — <b>a few hundred</b><br><span class="faint">additions and x⁵ over the field</span></td></tr>
+    <tr><td>signatures</td>
+      <td>Ed25519 — <b>millions</b> of gates<br><span class="faint">curve lives in a foreign field</span></td>
+      <td class="green">Grumpkin Schnorr — <b>~10K</b><br><span class="faint">native field — see below</span></td></tr>
+  </table>
+  <ul class="points small">
+    <li><b>Grumpkin's trick:</b> its base field <em>is</em> BN254's scalar field (the two form a cycle) —
+      so curve arithmetic inside the circuit is just ordinary field math, no emulation.</li>
+    <li><b>Same math on both sides:</b> CAP-0075 makes Poseidon2 a Soroban host function, so the
+      contract recomputes the very same hashes cheaply on-chain.</li>
+    <li><b>Ed25519 doesn't disappear:</b> it still guards your Stellar account and signs deposits.
+      The Grumpkin key is a rollup-only signing key held by the wallet.</li>
+  </ul>
+</section>
+
+<!-- 11 · Trust model -->
+<section class="slide">
+  <div class="kicker">Trust model</div>
+  <p class="bigline">The operator is trusted for <em>liveness</em>,<br>never for <em>correctness</em>.</p>
+  <div class="cols" style="margin-top:1.8em">
+    <div class="box">
+      <h3 class="green">What the sequencer cannot do</h3>
+      <div class="d">Steal funds, forge balances, skip deposits, redirect withdrawals,
+        or advance the root with an invalid transition — every root move is proven,
+        and the contract checks the proof against its own bookkeeping.</div>
+    </div>
+    <div class="box">
+      <h3 class="red">What the sequencer can do</h3>
+      <div class="d">Go offline or withhold a batch's data blob. Users then can't compute
+        Merkle paths for newer roots — the system <b>freezes</b>. That's the validium bargain,
+        and it sets up the data-availability discussion in a moment.</div>
+    </div>
+  </div>
+  <p class="small muted" style="margin-top:1.4em">Production hardening path: DAC signatures over
+    <code>da_commitment</code> verified in <code>submit_batch</code>, plus a forced-exit escape hatch.
+    Neither exists in the prototype.</p>
+</section>
+
+<!-- 11 · Scalability 1: proving -->
+<section class="slide">
+  <div class="kicker">Scalability · 1 of 3</div>
+  <h2>The bottleneck is the prover</h2>
+  <div class="cols">
+    <div>
+      <table>
+        <tr><th>batch</th><th>gates</th><th>bb prove</th><th>tx/s</th></tr>
+        <tr><td>4</td><td>2¹⁶</td><td>0.17 s</td><td>24</td></tr>
+        <tr><td>16</td><td>2¹⁸</td><td>0.49 s</td><td>33</td></tr>
+        <tr><td>64</td><td>2²⁰</td><td>1.67 s</td><td>38</td></tr>
+        <tr class="hl"><td>128</td><td>2²¹</td><td>3.41 s</td><td>38</td></tr>
+        <tr><td>256</td><td>2²²</td><td>4.95 s</td><td>52</td></tr>
+      </table>
+      <p class="tiny faint">UltraHonk via bb 0.87, Apple M5 Pro (18 cores), measured 2026-07-07.
+        Proving scales ~linearly with gates; verification doesn't care.</p>
+    </div>
+    <div>
+      <ul class="points small">
+        <li><b>The cadence rule:</b> proving must beat block time (~5s on Stellar).
+          Laptop: n128 → <b>~26 tx/s</b>; 2-core cloud VM: n4 → 0.8 tx/s.</li>
+        <li><b>Vertical scaling:</b> get a bigger machine — M4 Pro → M5 Pro alone: <b>1.4–1.8× faster</b>.</li>
+        <li><b>Bigger batches:</b> fees don't grow with batch size — trade latency for throughput, zero infra.</li>
+        <li><b>Prover farm + recursion:</b> loses on one machine, wins across many —
+          4 workers × n256 + an aggregator ≈ <b>~128 tx/s</b>.</li>
+      </ul>
+      <div class="takeaway small">These numbers are <b>UltraHonk</b>, which we chose for simplicity —
+        proof systems built for scale (like Lighter's Plonky2) prove far faster, and production
+        rollups add GPUs and prover farms on top.</div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 · Scalability 2: verification & bytes -->
+<section class="slide">
+  <div class="kicker">Scalability · 2 of 3</div>
+  <h2>On-chain costs don't grow with the batch</h2>
+  <div class="cols">
+    <div>
+      <ul class="points small">
+        <li><b>CPU never binds:</b> verification grows ~+2M instructions per circuit doubling.
+          Even a 2²⁴-gate circuit (~1,000+ payments) verifies at ~103M of the 400M cap.</li>
+        <li><b>Bytes are constant:</b> <code>submit_batch</code> is ~15 KB — 14.6 KB of it the proof —
+          whether the batch holds 4 payments or 4,096. Just 11% of the 132,096 B tx cap;
+          the tx data itself lives off-chain (next slide).</li>
+        <li><b>Fees are flat:</b> ~0.12 XLM per batch <em>regardless of batch size</em> —
+          so cost per payment is 0.12/N, and <b>the chain never caps batch size; the prover does</b>.</li>
+      </ul>
+    </div>
+    <div>
+      <table>
+        <tr><th>batch size</th><th>fee / payment</th></tr>
+        <tr><td>4</td><td>~0.030 XLM</td></tr>
+        <tr><td>16</td><td>~0.0078 XLM</td></tr>
+        <tr><td>256</td><td>~0.0005 XLM</td></tr>
+        <tr><td>4,096</td><td>~0.00003 XLM</td></tr>
+        <tr><td class="faint">Stellar base fee</td><td class="faint">~0.00001 XLM</td></tr>
+      </table>
+      <div class="takeaway small">Honest framing: a rollup on Stellar doesn't beat base-chain fees until batches
+        reach thousands of payments. The value is <b>throughput beyond ledger limits</b> and
+        <b>features the base chain can't do</b> (privacy, custom execution) — not fee arbitrage.</div>
+    </div>
+  </div>
+  <p class="footnote">Measured on testnet with the native-asset SAC; REPORT.md §1, §3.</p>
+</section>
+
+<!-- 13 · Scalability 3: data availability -->
+<section class="slide">
+  <div class="kicker">Scalability · 3 of 3</div>
+  <h2>Data availability: the real design choice</h2>
+  <p class="muted small">Proofs guarantee the root is <em>correct</em> — but to know your own balance
+    (or exit without the operator), you need the underlying data. Where it lives is the scalability–trust dial:</p>
+  <div class="boxes" style="grid-template-columns: 1fr 1fr 1fr; margin-top:1em">
+    <div class="box">
+      <h3>On-chain data <span class="faint tiny">(rollup)</span></h3>
+      <div class="d">Calldata, then blobs (EIP-4844) on Ethereum — Lighter posts ~65 MiB/day.
+        Trustless reconstruction, but on-chain bytes cap your throughput and dominate cost.</div>
+    </div>
+    <div class="box">
+      <h3>Data-availability committee</h3>
+      <div class="d">A quorum signs that it holds the data; the contract checks signatures.
+        Middle ground — trust k-of-n instead of one operator.</div>
+    </div>
+    <div class="box" style="border-color: var(--gold)">
+      <h3 class="gold">Off-chain <span class="faint tiny">(validium — Soribium)</span></h3>
+      <div class="d">Only the proven <code>da_commitment</code> goes on chain. The blob is served at
+        <code>GET /da/:batch_num</code>; anyone can re-fold it and check the commitment.
+        Withholding freezes — never steals.</div>
+    </div>
+  </div>
+  <ul class="points small" style="margin-top:1em">
+    <li>Soribium chose validium deliberately: payments DA is tiny (~28 B/payment), but Stellar has no blob
+      space — full on-chain DA would burn the same byte budget that carries the proof.</li>
+    <li>The hardening ladder is incremental: single operator → DAC signatures in
+      <code>submit_batch</code> → forced-exit escape hatch. Validity proofs stay identical the whole way.</li>
+  </ul>
+</section>
+
+<!-- 14 · Wrap-up -->
+<section class="slide">
+  <div class="kicker">Wrap-up</div>
+  <h2>Takeaways</h2>
+  <ul class="points" style="font-size:1.1em">
+    <li><b>Validity is a solved primitive on Stellar today.</b> Protocol 25/26 host functions verify
+      UltraHonk natively at ~23% of the CPU budget — no protocol changes needed.</li>
+    <li><b>The prover is the bottleneck, not the chain.</b> Scaling a zk-rollup is a provisioning problem:
+      hardware, farms, recursion — all measured, all public.</li>
+    <li><b>The value is throughput and new features, not fees.</b> On-chain cost per batch is flat,
+      so throughput scales with the prover, not the chain — plus a substrate for privacy and custom execution.</li>
+  </ul>
+  <div class="boxes" style="grid-template-columns: 1fr 1fr 1fr; margin-top:1.5em">
+    <div class="box"><h3>Try the wallet</h3><div class="d mono">blob.tomerweller.com/soribium</div></div>
+    <div class="box"><h3>Interactive explainer</h3><div class="d">"Learn" tab in the wallet —
+      live crypto widgets for every concept in this deck.</div></div>
+    <div class="box"><h3>Read the code</h3><div class="d mono">github.com/tomerweller/stellar-zk-rollup</div></div>
+  </div>
+  <p class="bigline" style="font-size:1.25em; margin-top:1.6em">The operator is trusted for <em>liveness</em>,
+    never for <em>correctness</em>.</p>
+</section>
+
+<div id="progress"></div>
+<div id="counter"></div>
+<div id="hint">← → to navigate</div>
+
+<script>
+  const slides = [...document.querySelectorAll('.slide')];
+  let cur = 0;
+
+  function show(i) {
+    cur = Math.max(0, Math.min(slides.length - 1, i));
+    slides.forEach((s, j) => s.classList.toggle('active', j === cur));
+    document.getElementById('counter').textContent = (cur + 1) + ' / ' + slides.length;
+    document.getElementById('progress').style.width = ((cur + 1) / slides.length * 100) + '%';
+    history.replaceState(null, '', '#' + (cur + 1));
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); show(cur + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(cur - 1); }
+    else if (e.key === 'Home') show(0);
+    else if (e.key === 'End') show(slides.length - 1);
+  });
+
+  document.addEventListener('click', e => {
+    if (e.target.closest('a')) return;
+    show(e.clientX > innerWidth / 3 ? cur + 1 : cur - 1);
+  });
+
+  window.addEventListener('hashchange', () => {
+    const n = (parseInt(location.hash.slice(1), 10) || 1) - 1;
+    if (n !== cur) show(n);
+  });
+
+  show((parseInt(location.hash.slice(1), 10) || 1) - 1);
+</script>
+</body>
+</html>
