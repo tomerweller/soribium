@@ -26,7 +26,7 @@ Date: 2026-07-16. Read-only static analysis; no suites were executed.
 | `src/test.rs` | 1 | `is_canonical_field` boundaries (0, r−1, r, 0xff…ff). |
 | `tests/verify_fixture.rs` | 4 | Real UltraHonk trivial-circuit fixture: verifies; tampered proof, wrong PI, wrong proof length rejected. |
 | `tests/verify_batch.rs` | 2 | Real `batch_n4` fixture proof verifies (160-byte / 5 PIs); wrong-root PI rejected. |
-| `tests/custody_loop.rs` | 9 | Strongest suite in the repo. Full custody loop (2 deposits → proven batch → transfer + withdrawal payout → replay rejected), PI blob layout check, and adversarial: tampered `da_commitment`, wrong `new_root`, tampered withdrawal amount, redirected withdrawal dest, wrong `deposit_count` (both directions), missing deposits (queue-prefix binding), deposit validation (0/negative/≥2^64 amounts, non-canonical pk_x, zero pk_x, `PAD_PK_X` rejected), lifetime credit cap boundary. |
+| `tests/custody_loop.rs` | 9 | Strongest suite in the repo. Full custody loop (2 deposits → proven batch → transfer + withdrawal payout → replay rejected), PI blob layout check, and adversarial: tampered `da_commitment`, wrong `new_root`, tampered withdrawal amount, redirected withdrawal dest, wrong `deposit_count` (both directions), missing deposits (queue-prefix binding), deposit validation (0/negative/≥2^64 amounts, non-canonical pk_x, zero pk_x, `PAD_PK_X` rejected). |
 
 **How run:** CI `fly.yml` (`cargo test -p rollup -p harness -p sequencer`) — but only **on push to `main`** (path-filtered), coupled to the Fly deploy job. Also `just test`. Fixture-based by design (no nargo/bb needed).
 
@@ -114,7 +114,7 @@ Missing negative/`should_fail` circuit tests, all in `circuits/lib/src/tx.nr` se
 - **Auth semantics**: `submit_batch` only requires `sequencer.require_auth()` for *any* address — submission is effectively permissionless (safe by proof-binding, but that design assumption deserves an explicit test: a random third party CAN land a valid envelope; a test would document it as intended rather than an oversight).
 - VK immutability: there is no setter (good), but nothing tests that constructor re-registration/re-init is impossible, or that an envelope proven under a *different* VK fails (a second fixture with a different circuit size would give this for free).
 - Event emission (`events::Deposit`/`Batch`) — untested.
-- `storage.rs` (queue arithmetic, lifetime-credit persistence) has no unit tests; covered only via the client tests.
+- `storage.rs` (queue arithmetic) has no unit tests; covered only via the client tests.
 
 ### Invariant 4 — Sequencer state machine
 **Status: essentially untested outside manual e2e. Largest single gap in the repo.**

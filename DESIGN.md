@@ -50,9 +50,11 @@ Domain separators (Fr constants):
   **even-y** public keys (`pk_y` LSB clear): keygen flips `sk → -sk` when the
   raw point has odd y (harness `Keypair::from_sk`, wallet `canonicalizeSk`).
   This binds y-parity for spend authorization without enlarging the leaf.
-- Balance range `[0, 2^64)` enforced in-circuit; `i128` on-chain. The contract
-  tracks **lifetime deposit credit** per `pk_x` and rejects deposits that would
-  push the sum past `u64::MAX` (prevents an unprovable FIFO queue head).
+- Balance range `[0, 2^64)` enforced in-circuit; `i128` on-chain. Overflow of
+  an L2 balance (an unprovable FIFO queue head) is prevented by a **deployment
+  invariant** rather than per-key tracking: the custody token's total supply
+  must be ≤ `u64::MAX` base units (native XLM: ~1.05e18 stroops, ~17× under).
+  The circuit conserves value, so every balance ≤ escrow ≤ supply.
 
 ## L2 transaction
 
@@ -141,6 +143,7 @@ over `da_commitment`; circuit-level `pk_x` uniqueness (honest builder +
 harness enforce find-first; a malicious prover could still open a second slot
 with the same `pk_x` without a sparse/nullifier tree); VK rotation/upgrade
 path; sequencer decentralization; SAC clawback/auth-flag vetting for the
-custody asset; cross-instance proof replay (no `addr_f` binding — old_root
-match makes replay a non-issue within an instance); lifetime deposit credit
-is conservative (does not decrease on withdraw).
+custody asset (including that it cannot mint past `u64::MAX` base units —
+the balance-overflow safety argument depends on it); cross-instance proof
+replay (no `addr_f` binding — old_root match makes replay a non-issue within
+an instance).

@@ -126,6 +126,7 @@ single-operator sequencer with no forced-exit / censorship escape hatch;
 localStorage key custody in the wallet; 256-account tree capacity;
 circuit-level `pk_x` uniqueness (honest builder only); immutable VK
 (a new circuit is a new contract instance); the verifier crate is unaudited.
-Active spends require even-y Grumpkin keys; lifetime deposit credit is capped
-at `u64::MAX` per `pk_x` to prevent unprovable queue heads; the public padding
-keypair cannot receive deposits.
+Active spends require even-y Grumpkin keys; the custody token's total supply
+must be ≤ `u64::MAX` base units (true for native XLM) so L2 balances can never
+overflow the circuit's u64 range; the public padding keypair cannot receive
+deposits.

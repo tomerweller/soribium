@@ -15,9 +15,14 @@ use ultrahonk_soroban_verifier::{UltraHonkVerifier, PROOF_BYTES};
 /// Inline withdrawal execution cap per batch (write-entry/CPU headroom).
 pub const MAX_WITHDRAWALS: u32 = 8;
 /// L2 balances are u64 in-circuit; deposits must fit.
+///
+/// Deployment invariant: the custody token's total supply (in base units)
+/// must be <= u64::MAX. The circuit conserves value, so no L2 balance can
+/// exceed the tokens escrowed, and escrow can't exceed supply — a balance
+/// overflow (unprovable queue head) is arithmetically impossible. Native XLM
+/// qualifies (~1.05e18 stroops < u64::MAX ~1.84e19). Do not deploy over a
+/// token that can mint past u64::MAX units.
 pub const MAX_AMOUNT: i128 = (u64::MAX as i128) + 1;
-/// Max lifetime deposits per L2 pk_x (matches in-circuit u64 balance range).
-pub const MAX_LIFETIME_CREDIT: u128 = u64::MAX as u128;
 
 /// Public padding account x-coordinate (circuits PAD_PK_X / sk=7·G). Deposits
 /// to this key are rejected — the secret is public, so any credit would be
@@ -39,9 +44,6 @@ pub enum RollupError {
     NonCanonicalField = 5,
     TooManyWithdrawals = 6,
     NotEnoughDeposits = 7,
-    /// Deposit would push lifetime credit for this pk_x past u64::MAX, making
-    /// the queue entry unprovable (circuit assert_u64 on balance).
-    DepositBalanceOverflow = 8,
     /// Deposit targets the public padding keypair.
     ReservedPaddingPk = 9,
 }
@@ -109,18 +111,12 @@ impl RollupContract {
             return Err(RollupError::ReservedPaddingPk);
         }
 
-        // Lifetime credit cap: prevents enqueueing a deposit that can never
-        // be consumed because L2 balances are u64 in-circuit (queue jam).
-        let credit = storage::lifetime_credit(&env, &l2_pk_x);
-        let next = credit.saturating_add(amount as u128);
-        if next > MAX_LIFETIME_CREDIT {
-            return Err(RollupError::DepositBalanceOverflow);
-        }
-
+        // Balance overflow (unprovable queue head) needs no per-key tracking:
+        // see the deployment invariant on MAX_AMOUNT — total token supply
+        // <= u64::MAX bounds every L2 balance below the circuit's u64 range.
         let token_client = token::TokenClient::new(&env, &storage::get_token(&env));
         token_client.transfer(&from, &env.current_contract_address(), &amount);
 
-        storage::set_lifetime_credit(&env, &l2_pk_x, next);
         let seq = storage::enqueue_deposit(&env, &PendingDeposit { pk_x: l2_pk_x.clone(), amount });
         events::Deposit { seq: &seq, pk_x: &l2_pk_x, amount: &amount }.publish(&env);
         Ok(seq)
