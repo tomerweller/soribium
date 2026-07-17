@@ -374,6 +374,8 @@ pub struct BatchRow {
     pub proof: Option<Vec<u8>>,
     pub status: String,
     pub tx_hash: Option<String>,
+    pub created_at: i64,
+    pub confirmed_at: Option<i64>,
 }
 
 fn batch_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<BatchRow> {
@@ -388,11 +390,14 @@ fn batch_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<BatchRow> {
         proof: r.get(7)?,
         status: r.get(8)?,
         tx_hash: r.get(9)?,
+        created_at: r.get(10)?,
+        confirmed_at: r.get(11)?,
     })
 }
 
 const BATCH_COLS: &str = "batch_num, old_root, new_root, deposit_count, da_commitment, \
-                          blob_json, envelope_json, proof, status, tx_hash";
+                          blob_json, envelope_json, proof, status, tx_hash, \
+                          created_at, confirmed_at";
 
 #[allow(clippy::too_many_arguments)]
 pub fn insert_batch(

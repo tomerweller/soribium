@@ -82,3 +82,21 @@ export function pkxToBytes32(pkXHex: string): Uint8Array {
   }
   return out;
 }
+
+/**
+ * Compact local timestamp for unix seconds: time-only when it's today,
+ * month+day otherwise. 24h clock to match the instrument aesthetic.
+ */
+export function formatTs(secs: number): string {
+  const d = new Date(secs * 1000);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString([], { hour12: false })
+    : d.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+}

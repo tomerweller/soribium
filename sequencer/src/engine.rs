@@ -295,6 +295,8 @@ impl Engine {
                     "da_commitment": fr_hex(&b.da_commitment),
                     "status": b.status,
                     "tx_hash": b.tx_hash,
+                    "created_at": b.created_at,
+                    "confirmed_at": b.confirmed_at,
                 })
             })
             .collect()

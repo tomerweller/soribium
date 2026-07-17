@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useStatus, useBatches } from '../api/queries';
 import { readOnchainRoot } from '../api/stellar';
 import { SEQUENCER_URL, contractUrl } from '../config';
+import { formatTs } from '../format';
 import { Badge, CopyableHex } from '../components/common';
 
 export function Explorer() {
@@ -19,6 +20,8 @@ export function Explorer() {
     new_root: string;
     status: string;
     tx_hash: string | null;
+    created_at: number;
+    confirmed_at: number | null;
   }>;
 
   return (
@@ -62,11 +65,16 @@ export function Explorer() {
 
       <h3>Batches</h3>
       <table>
-        <thead><tr><th>#</th><th>New root</th><th>Status</th><th>DA blob</th></tr></thead>
+        <thead><tr><th>#</th><th>Time</th><th>New root</th><th>Status</th><th>DA blob</th></tr></thead>
         <tbody>
           {batches.map((b) => (
             <tr key={b.batch_num}>
               <td>{b.batch_num}</td>
+              {/* Confirmation time once on-chain; build time (muted) until then.
+                  Falls back to a dash against sequencers predating these fields. */}
+              <td className={b.confirmed_at ? undefined : 'muted'}>
+                {b.confirmed_at ?? b.created_at ? formatTs((b.confirmed_at ?? b.created_at)!) : '—'}
+              </td>
               <td><CopyableHex value={b.new_root} chars={6} /></td>
               <td>{b.status}</td>
               <td><a href={`${SEQUENCER_URL}/da/${b.batch_num}`} target="_blank" rel="noreferrer">download</a></td>
