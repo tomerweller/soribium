@@ -31,6 +31,8 @@ export function Layout() {
             {label}
           </NavLink>
         ))}
+        {/* Static talk deck, served from the public dir (not a SPA route). */}
+        <a href={`${import.meta.env.BASE_URL}deck/`}>Deck</a>
       </nav>
       <main>
         {isError && <Banner tone="warn">Can't reach the sequencer — showing last-known state.</Banner>}
