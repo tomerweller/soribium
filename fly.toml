@@ -14,17 +14,16 @@ primary_region = "iad"
 [env]
   RPC_URL = "https://soroban-testnet.stellar.org"
   NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"
-  CONTRACT_ID = "CCBFYFUD4QTUVS7YQJORPUY4OE2VOHFQL6NA3WNQJBW7DTT3U2C4WW4D"
+  CONTRACT_ID = "CDMSDXQNWYN4ZAP44VFNGPT46HI4NKBYE37L4662PRJ3ZALMHPSWLTSQ"
   TOKEN_ID = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
   SEQUENCER_ADDRESS = "GCUCAPHICHEZFTTCNQ56LE6E6S4JJ3FGNYARTP3MBJTXLN2VTONKYY7E"
   # 5s-cadence batching: eager trigger reacts within one 2s tick; a lone
   # payment waits at most 5s.
   BATCH_MAX_WAIT_SECS = "5"
   TICK_SECS = "2"
-  # batch_n4 proves in 1.2-1.4s on this VM (shared-cpu-2x) — the largest size
-  # meeting the 5s-cadence budget under the org's 2-core limit. Switch to
-  # batch_n16 (with a re-bootstrap: the VK is contract-immutable) once the
-  # billing unlock allows performance-4x (docs/PROVING.md §3.5).
+  # batch_n4, matching the VK the live contract was bootstrapped with — a
+  # circuit change requires a re-bootstrap (the VK is contract-immutable)
+  # and a DB reset. Sized for the 5s-cadence budget (docs/PROVING.md §3.5).
   CIRCUIT_PKG = "batch_n4"
   RUST_LOG = "sequencer=info"
 
@@ -48,9 +47,9 @@ primary_region = "iad"
   destination = "/data"
 
 [[vm]]
-  # Target is performance-2x per the 5s-cadence requirement, but this Fly org
-  # is currently limited to 2 shared cores per machine (billing unlock
-  # pending). Benchmark-gate numbers for this size are in docs/PROVING.md
-  # §3.5; scale up (`fly scale vm`) once the org limit is lifted.
-  size = "shared-cpu-2x"
+  # Dedicated cores per the 5s-cadence requirement (docs/PROVING.md §3.5):
+  # shared CPUs throttle to a small baseline once burst credits drain, which
+  # blows the proving budget under sustained load. performance-2x is ample
+  # for batch_n4 (~1s prove).
+  size = "performance-2x"
   memory = "4gb"
