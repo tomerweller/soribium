@@ -36,7 +36,9 @@ jobs:
       - name: Build
         working-directory: wallet
         env:
-          VITE_SEQUENCER_URL: https://soribium.fly.dev
+          # No public sequencer: the hosted wallet talks to one the visitor runs
+          # locally (`just sequencer`, listening on :8080).
+          VITE_SEQUENCER_URL: http://localhost:8080
           BASE_PATH: /soribium/
         run: |
           npm run build

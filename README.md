@@ -74,31 +74,33 @@ The tx blob is published off-chain (sequencer `GET /da/:batch_num`) and bound
 by `da_commitment`, the 5th public input — verifiers re-fold the blob and
 check it against the on-chain commitment.
 
-## Cloud deployment
+## Deployment
 
-The public instance runs on:
+There is no public sequencer instance at the moment (the Fly.io instance was
+decommissioned 2026-10).
 
 - **Wallet**: https://blob.tomerweller.com/soribium/ (GitHub Pages, deployed
   by `.github/workflows/wallet.yml` — the crypto vector tests gate every
-  deploy)
-- **Sequencer**: https://soribium.fly.dev (Fly.io, deployed by
-  `.github/workflows/fly.yml` via remote amd64 builders — required, since bb
-  ships no arm64-linux binary)
+  deploy). It is built against `http://localhost:8080`, so it works with a
+  sequencer you run locally: `just bootstrap` (new contract + `.env`) then
+  `just sequencer`. The Learn page works without one; its live widgets just
+  stay empty.
+- **Full local stack**: `just up` (docker-compose sequencer + wallet).
 
-Ops notes:
+Hosting notes for a future cloud instance:
 
+- The sequencer image is linux/amd64 only (bb ships no arm64-linux binary).
 - **VM sizing is governed by the 5s-cadence requirement** (docs/PROVING.md
   §3.5): bb prove must stay ≤ ~3.5s so every Stellar ledger can carry a
-  batch. The org is currently billing-limited to 2 shared cores, where
-  measured proving is n16 = 6.2–8.1s (fails) and n4 = 1.2–1.4s (passes) —
-  so the cloud instance runs **batch_n4**. Once the Fly billing unlock
-  allows `performance-4x`, re-bootstrap with the n16 VK and scale up.
-- Fresh instance: `just bootstrap` (new contract + `.env`) then
-  `scripts/deploy_fly.sh` (sets the secret, patches `fly.toml`, remote
-  deploys). The SQLite state lives on the `soribium_data` volume; single
-  machine by design — never scale horizontally.
-- Secrets: only `SEQUENCER_SECRET`, via `fly secrets`; everything else in
-  `fly.toml [env]` is a public identifier.
+  batch. On 2 shared cores, n16 = 6.2–8.1s (fails) and n4 = 1.2–1.4s
+  (passes); n16 needs ~4 dedicated cores. The VK is contract-immutable, so
+  pick the circuit before bootstrapping.
+- SQLite state needs a persistent volume; single machine by design — never
+  scale horizontally.
+- Only `SEQUENCER_SECRET` is secret; the other env vars are public
+  identifiers.
+- The `/tx` rate limiter keys on the first `X-Forwarded-For` hop, so put it
+  behind a proxy that sets (and overwrites) that header.
 
 ## Testing
 
