@@ -220,24 +220,23 @@ in practice **bb prove(CIRCUIT_PKG) ≤ ~3.5s** leaves adequate headroom.
 Deployment hardware must be provisioned to meet this, and the batch size is
 chosen as the largest N whose prove time fits the budget on that hardware.
 
-Cloud reference (Fly.io, `soribium` app; measured 2026-07-06, 3 runs each):
+Cloud reference (Fly.io `soribium` app, since decommissioned; measured
+2026-07-06, 3 runs each):
 
 | VM | circuit | bb prove | meets ≤3.5s budget? |
 |---|---|---|---|
 | shared-cpu-2x, 4GB | batch_n16 (2^18) | 6.2–8.1 s | **no** |
-| shared-cpu-2x, 4GB | batch_n4 (2^16) | 1.2–1.4 s | **yes** — deployed config |
+| shared-cpu-2x, 4GB | batch_n4 (2^16) | 1.2–1.4 s | **yes** — the config that was deployed |
 
 Live pipeline (from production logs, real batches): **build → proof recorded
 = 3.0–3.6 s** ✓; proof → on-chain confirmation adds ~8 s (submit + testnet
 ledger close + 2s confirm polling), which is chain latency, not prover work.
 
-The org is currently billing-limited to 2 shared cores per machine
-(performance tiers and >2 cores need a Fly billing unlock). Under that
-limit, **batch_n4 is the largest size meeting the budget**, so the cloud
-instance runs n4 (4 payments/batch ≈ 0.8 tx/s sustained at 5s cadence).
-Scale path once unlocked: `fly scale vm performance-4x`, re-measure n16
-(expected ~2–3s from the core-count ratio), re-bootstrap with the n16 VK
-(the VK is contract-immutable), and update this table.
+That instance was limited to 2 shared cores, under which **batch_n4 is the
+largest size meeting the budget** (4 payments/batch ≈ 0.8 tx/s sustained at
+5s cadence). A future host with ≥4 dedicated cores should re-measure n16
+(expected ~2–3s from the core-count ratio) before bootstrapping, since the
+VK is contract-immutable; update this table with the new numbers.
 
 ## 4. Recommendations
 

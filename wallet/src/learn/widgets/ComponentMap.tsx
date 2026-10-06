@@ -9,7 +9,7 @@ const COMPONENTS = {
     cant: "Can't lie: it independently re-verifies its balance's Merkle path against the on-chain root.",
   },
   sequencer: {
-    title: 'Sequencer (Fly.io)',
+    title: 'Sequencer (server)',
     holds: 'The full account tree + mempool in SQLite. Builds, proves, and submits batches.',
     cant: "Can't lie about state — every root advance needs a proof. Can only delay (censor) or withhold data.",
   },

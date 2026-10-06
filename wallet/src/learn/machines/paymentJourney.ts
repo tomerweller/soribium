@@ -8,7 +8,7 @@ import { sign, txMessage, verify } from '../../crypto/schnorr';
 import { frToHex32 } from '../../crypto/fields';
 import { DemoAccount, demoRoot, makeAccounts } from '../demo';
 
-export const BATCH_SLOTS = 4; // like the live deployment (batch_n4)
+export const BATCH_SLOTS = 4; // like the former cloud deployment (batch_n4)
 export const TIMINGS = { building: 500, proving: 1300, submitting: 900, confirmed: 900 };
 
 export interface JourneyTx {

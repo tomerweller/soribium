@@ -11,7 +11,7 @@ const PIPELINE = ['idle', 'building', 'proving', 'submitting', 'confirmed'] as c
 const STAGE_NOTE: Record<string, string> = {
   idle: 'waiting for payments (eager: builds when >1 pending, or after 5s)',
   building: `drain mempool into ${BATCH_SLOTS} slots, pad the rest (${TIMINGS.building}ms)`,
-  proving: `witness + bb prove — measured ${(TIMINGS.proving / 1000).toFixed(1)}s on the live VM`,
+  proving: `witness + bb prove — measured ${(TIMINGS.proving / 1000).toFixed(1)}s on a 2-core cloud VM`,
   submitting: 'submit_batch tx → Soroban verifies the proof on-chain',
   confirmed: 'root advances; balances final',
 };

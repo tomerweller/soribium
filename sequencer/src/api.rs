@@ -48,8 +48,8 @@ impl RateLimiter {
     }
 }
 
-/// Client identity for rate limiting: Fly's edge sets Fly-Client-IP; fall
-/// back to the first X-Forwarded-For hop, then a shared bucket.
+/// Client identity for rate limiting: the first X-Forwarded-For hop (set by
+/// a fronting proxy, if any), else a shared bucket.
 fn client_key(req: &Request) -> String {
     let header = |name: &str| {
         req.headers()
@@ -57,8 +57,7 @@ fn client_key(req: &Request) -> String {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.split(',').next().unwrap_or(s).trim().to_string())
     };
-    header("fly-client-ip")
-        .or_else(|| header("x-forwarded-for"))
+    header("x-forwarded-for")
         .unwrap_or_else(|| "direct".into())
 }
 

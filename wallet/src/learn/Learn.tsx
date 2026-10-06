@@ -71,7 +71,7 @@ export default function Learn() {
         <p>
           This simulator runs the same state machine as the production sequencer —{' '}
           <span className="mono">building → proving → submitting → confirmed</span> — with real
-          Schnorr signatures and real timing from the live deployment. Batches build eagerly
+          Schnorr signatures and real timing measured on a 2-core cloud VM. Batches build eagerly
           (more than one pending payment) or after a 5-second timer, mirroring Stellar's ledger
           cadence. Try the failure buttons too.
         </p>

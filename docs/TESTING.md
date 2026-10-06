@@ -28,7 +28,7 @@ Date: 2026-07-16. Read-only static analysis; no suites were executed.
 | `tests/verify_batch.rs` | 2 | Real `batch_n4` fixture proof verifies (160-byte / 5 PIs); wrong-root PI rejected. |
 | `tests/custody_loop.rs` | 9 | Strongest suite in the repo. Full custody loop (2 deposits → proven batch → transfer + withdrawal payout → replay rejected), PI blob layout check, and adversarial: tampered `da_commitment`, wrong `new_root`, tampered withdrawal amount, redirected withdrawal dest, wrong `deposit_count` (both directions), missing deposits (queue-prefix binding), deposit validation (0/negative/≥2^64 amounts, non-canonical pk_x, zero pk_x, `PAD_PK_X` rejected). |
 
-**How run:** CI `fly.yml` (`cargo test -p rollup -p harness -p sequencer`) — but only **on push to `main`** (path-filtered), coupled to the Fly deploy job. Also `just test`. Fixture-based by design (no nargo/bb needed).
+**How run:** CI `ci.yml` (`cargo test -p rollup -p harness -p sequencer`) on every PR and push to `main`. Also `just test`. Fixture-based by design (no nargo/bb needed).
 
 ### 1.3 Harness — `cargo test -p harness`, 5 tests
 
@@ -200,7 +200,7 @@ Shaped for a solo maintainer heading to production: everything fast and hermetic
 
 ### CI topology (target)
 - **`ci.yml` on `pull_request` + `push: main`** (new): vector regen-diff → nargo test → cargo test workspace → wallet vitest + tsc. ~5–8 min cached. Path filtering only to *skip doc-only changes*, never to skip cross-stack jobs on code changes.
-- `fly.yml` / `wallet.yml`: deploy only, `needs:` the ci workflow (or keep their test steps as a second belt).
+- `wallet.yml`: deploy only, `needs:` the ci workflow (or keep their test steps as a second belt).
 - **`nightly.yml`**: fixture regeneration with real bb + (later) localnet e2e.
 - Pre-commit (optional): `cargo test -p harness` + `vitest --run` — the sub-30 s subset.
 

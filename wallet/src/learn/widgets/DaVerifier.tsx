@@ -1,7 +1,7 @@
-// S6 finale: fetch a REAL batch blob from the live deployment and re-fold
+// S6 finale: fetch a REAL batch blob from the connected sequencer and re-fold
 // its transaction messages with the real Poseidon2, comparing against the
 // da_commitment the on-chain proof bound. The reader's browser audits the
-// production system.
+// running system.
 import { useState } from 'react';
 import { api } from '../../api/sequencer';
 import { CopyableHex } from '../../components/common';
@@ -68,11 +68,12 @@ export function DaVerifier() {
   return (
     <div className="learn-widget">
       <button className="primary" onClick={run} disabled={busy}>
-        {busy ? 'fetching + folding…' : 'Audit the live deployment'}
+        {busy ? 'fetching + folding…' : 'Audit the sequencer'}
       </button>
       {phase.s === 'error' && (
         <p className="muted" style={{ fontSize: '0.78rem' }}>
-          Live instance unreachable ({phase.msg}). The recipe still stands: fetch{' '}
+          Sequencer unreachable ({phase.msg}) — run one locally with{' '}
+          <span className="mono">just sequencer</span>. The recipe still stands: fetch{' '}
           <span className="mono">/da/:batch</span>, fold each tx message with
           Poseidon2([7, acc, msg]), compare to the proven commitment.
         </p>
@@ -84,7 +85,7 @@ export function DaVerifier() {
           <div className="kv"><span className="k">Proven on-chain</span><span className="dots" /><span className="v"><CopyableHex value={phase.committed} chars={8} /></span></div>
           <div className={`verdict ${phase.match ? 'verdict-ok' : 'verdict-bad'}`}>
             <span className="verdict-glyph">{phase.match ? '▣' : '▨'}</span>
-            {phase.match ? 'MATCH — YOUR BROWSER JUST AUDITED THE LIVE SYSTEM' : 'MISMATCH — THE OPERATOR PUBLISHED WRONG DATA'}
+            {phase.match ? 'MATCH — YOUR BROWSER JUST AUDITED THE RUNNING SYSTEM' : 'MISMATCH — THE OPERATOR PUBLISHED WRONG DATA'}
           </div>
         </>
       )}

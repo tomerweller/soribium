@@ -1,8 +1,8 @@
 # The PR gate: every suite in every stack, with NO cross-stack path
 # filtering — a circuit change must re-run the wallet vector gate and vice
 # versa, because byte-exact cross-stack equivalence is the system's
-# load-bearing invariant (docs/TESTING.md). The deploy workflows (fly.yml,
-# wallet.yml) keep their own test steps as a second belt on push to main.
+# load-bearing invariant (docs/TESTING.md). The deploy workflow (wallet.yml)
+# keeps its own test steps as a second belt on push to main.
 name: ci
 on:
   pull_request:
